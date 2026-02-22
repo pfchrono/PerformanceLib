@@ -1,0 +1,31 @@
+## Interface: 120001
+## Title: PerformanceLib - Performance System Library
+## Version: 1.0.0
+## Author: UnhaltedUnitFrames Team
+## Notes: High-performance library for addon developers providing event coalescing, frame time budgeting, frame pooling, and ML-based optimization systems
+## SavedVariables: PerformanceLIBDB
+## OptionalDeps: Ace3, LibSharedMedia
+
+# Core Systems
+Core\Architecture.lua
+Core\EventCoalescer.lua
+Core\FrameTimeBudget.lua
+Core\DirtyFlagManager.lua
+Core\FramePoolManager.lua
+Core\IndicatorPooling.lua
+
+# ML Systems (Optional but included)
+ML\DirtyPriorityOptimizer.lua
+ML\MLOptimizer.lua
+
+# Debug & Profiling
+Debug\DebugOutput.lua
+Debug\PerformanceProfiler.lua
+Debug\DebugPanel.lua
+
+# Configuration
+Config\GUIWidgets.lua
+Config\Dashboard.lua
+
+# Main Library Entry Point
+PerformanceLib.lua
