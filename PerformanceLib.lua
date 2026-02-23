@@ -250,7 +250,7 @@ function PerfLib:ToggleDashboard()
     elseif self.DebugOutput and self.DebugOutput.ShowPanel then
         self.DebugOutput:ShowPanel()
     else
-        print("|cFFFF0000PerformanceLib: Dashboard UI unavailable.|r")
+        PerfLib:Output("|cFFFF0000PerformanceLib: Dashboard UI unavailable.|r")
     end
 end
 
@@ -263,6 +263,38 @@ function PerfLib:Debug(system, message, tier)
         return
     end
     self.DebugOutput:Output(system, message, tier or 2)
+end
+
+---Set an output sink for user-facing library output.
+---@param sink function|nil Callback signature: function(context, message, system, tier)
+---@param context any Optional callback context
+function PerfLib:SetOutputSink(sink, context)
+    if type(sink) == "function" then
+        self._outputSink = sink
+        self._outputContext = context
+    else
+        self._outputSink = nil
+        self._outputContext = nil
+    end
+end
+
+---Emit user-facing output through sink; fallback to chat.
+---@param message string
+---@param system string|nil
+---@param tier integer|nil
+function PerfLib:Output(message, system, tier)
+    local text = tostring(message or "")
+    system = system or "PerformanceLib"
+    tier = tier or 2
+
+    if type(self._outputSink) == "function" then
+        local ok = pcall(self._outputSink, self._outputContext or self, text, system, tier)
+        if ok then
+            return
+        end
+    end
+
+    _G.print(text)
 end
 
 ---Get the version string
@@ -285,17 +317,19 @@ SLASH_PERFLIB1 = "/perflib"
 SLASH_PERFLIB2 = "/libperf"
 
 local function PrintHelp()
-    print("|cFF00FF00PerformanceLib Commands:|r")
-    print("  /perflib ui - Toggle dashboard UI")
-    print("  /perflib ui show|hide - Explicitly show/hide dashboard")
-    print("  /perflib dash - Alias for /perflib ui")
-    print("  /libperf ui|dash - Aliases")
-    print("  /perflib stats - Print current performance stats")
-    print("  /perflib version - Show version and initializer")
-    print("  /perflib preset <Low|Medium|High|Ultra> - Set preset")
-    print("  /perflib profile start - Start profiler capture")
-    print("  /perflib profile stop - Stop profiler capture")
-    print("  /perflib help - Show this help")
+    PerfLib:Output("|cFF00FF00PerformanceLib Commands:|r")
+    PerfLib:Output("  /perflib ui - Toggle dashboard UI")
+    PerfLib:Output("  /perflib ui show|hide - Explicitly show/hide dashboard")
+    PerfLib:Output("  /perflib dash - Alias for /perflib ui")
+    PerfLib:Output("  /libperf ui|dash - Aliases")
+    PerfLib:Output("  /perflib stats - Print current performance stats")
+    PerfLib:Output("  /perflib version - Show version and initializer")
+    PerfLib:Output("  /perflib preset <Low|Medium|High|Ultra> - Set preset")
+    PerfLib:Output("  /perflib profile start - Start profiler capture")
+    PerfLib:Output("  /perflib profile stop - Stop profiler capture")
+    PerfLib:Output("  /perflib profile analyze [scope] - Print diagnostic findings")
+    PerfLib:Output("  /perflib analyze [scope] - Shortcut (scope: all|eventbus|frame|dirty|pool|profile)")
+    PerfLib:Output("  /perflib help - Show this help")
 end
 
 local function PrintStats()
@@ -306,18 +340,199 @@ local function PrintStats()
     local coalescerEnabled = PerfLib.EventCoalescer and PerfLib.EventCoalescer._enabled
     local dirtyEnabled = PerfLib.DirtyFlagManager and PerfLib.DirtyFlagManager._enabled
 
-    print("|cFF00FF00PerformanceLib Stats:|r")
-    print(("  Frame Avg: %.2f ms | P95: %.2f | P99: %.2f"):format(frameStats.avg or 0, frameStats.P95 or 0, frameStats.P99 or 0))
-    print(("  Events: coalesced=%d dispatched=%d queued=%d"):format(eventStats.totalCoalesced or 0, eventStats.totalDispatched or 0, eventStats.queuedEvents or 0))
-    print(("  Dirty: processed=%d batches=%d queued=%d invalid=%d"):format(dirtyStats.framesProcessed or 0, dirtyStats.batchesRun or 0, dirtyStats.currentDirtyCount or 0, dirtyStats.invalidFramesSkipped or 0))
-    print(("  Pools: created=%d reused=%d released=%d"):format(poolStats.totalCreated or 0, poolStats.totalReused or 0, poolStats.totalReleased or 0))
-    print(("  Systems: coalescer=%s dirty=%s"):format(coalescerEnabled and "on" or "off", dirtyEnabled and "on" or "off"))
+    PerfLib:Output("|cFF00FF00PerformanceLib Stats:|r")
+    PerfLib:Output(("  Frame Avg: %.2f ms | P95: %.2f | P99: %.2f"):format(frameStats.avg or 0, frameStats.P95 or 0, frameStats.P99 or 0))
+    PerfLib:Output(("  Events: coalesced=%d dispatched=%d queued=%d"):format(eventStats.totalCoalesced or 0, eventStats.totalDispatched or 0, eventStats.queuedEvents or 0))
+    PerfLib:Output(("  Dirty: processed=%d batches=%d queued=%d invalid=%d"):format(dirtyStats.framesProcessed or 0, dirtyStats.batchesRun or 0, dirtyStats.currentDirtyCount or 0, dirtyStats.invalidFramesSkipped or 0))
+    PerfLib:Output(("  Pools: created=%d reused=%d released=%d"):format(poolStats.totalCreated or 0, poolStats.totalReused or 0, poolStats.totalReleased or 0))
+    PerfLib:Output(("  Systems: coalescer=%s dirty=%s"):format(coalescerEnabled and "on" or "off", dirtyEnabled and "on" or "off"))
     if (eventStats.totalCoalesced or 0) == 0 and (eventStats.totalDispatched or 0) == 0 then
-        print("  Note: event stats stay at 0 until an addon calls PerformanceLib:QueueEvent(...).")
+        PerfLib:Output("  Note: event stats stay at 0 until an addon calls PerformanceLib:QueueEvent(...).")
     end
     if (poolStats.totalCreated or 0) == 0 and (poolStats.totalReused or 0) == 0 then
-        print("  Note: pool stats stay at 0 until an addon uses PerformanceLib:AcquireFrame()/ReleaseFrame().")
+        PerfLib:Output("  Note: pool stats stay at 0 until an addon uses PerformanceLib:AcquireFrame()/ReleaseFrame().")
     end
+end
+
+local function BuildTopEventRows(perEventStats, limit)
+    local rows = {}
+    for eventName, info in pairs(perEventStats or {}) do
+        local coalesced = (info and info.coalesced) or 0
+        local dispatched = (info and info.dispatched) or 0
+        rows[#rows + 1] = {
+            event = eventName,
+            coalesced = coalesced,
+            dispatched = dispatched,
+            saved = math.max(0, coalesced - dispatched),
+        }
+    end
+    table.sort(rows, function(a, b)
+        if a.saved ~= b.saved then
+            return a.saved > b.saved
+        end
+        return (a.coalesced + a.dispatched) > (b.coalesced + b.dispatched)
+    end)
+    local out = {}
+    local maxRows = math.min(limit or 5, #rows)
+    for i = 1, maxRows do
+        out[#out + 1] = rows[i]
+    end
+    return out
+end
+
+function PerfLib:AnalyzePerformance(scope)
+    local frameStats = self.GetFrameTimeStats and self:GetFrameTimeStats() or {}
+    local eventStats = self.EventCoalescer and self.EventCoalescer.GetStats and self.EventCoalescer:GetStats() or {}
+    local dirtyStats = self.DirtyFlagManager and self.DirtyFlagManager.GetStats and self.DirtyFlagManager:GetStats() or {}
+    local poolStats = self.FramePoolManager and self.FramePoolManager.GetStats and self.FramePoolManager:GetStats() or {}
+    local profilerStats = self.PerformanceProfiler and self.PerformanceProfiler.GetStats and self.PerformanceProfiler:GetStats() or {}
+    local profilerAnalysis = {}
+
+    scope = (scope or "all"):lower()
+    local function includes(name)
+        return scope == "all" or scope == name
+    end
+
+    local findings = {}
+    local recommendations = {}
+    local function addFinding(text)
+        findings[#findings + 1] = text
+    end
+    local function addRecommendation(text)
+        recommendations[#recommendations + 1] = text
+    end
+
+    if includes("frame") then
+        local avg = frameStats.avg or 0
+        local p95 = frameStats.P95 or 0
+        local p99 = frameStats.P99 or 0
+        addFinding(("Frame budget: avg=%.2fms p95=%.2f p99=%.2f dropped=%d deferred=%d"):format(
+            avg,
+            p95,
+            p99,
+            frameStats.droppedCallbacks or 0,
+            frameStats.deferredCount or 0
+        ))
+        if avg > 16.67 or p95 > 20 then
+            addRecommendation("Frame pressure is high: use /perflib preset Medium or Low and increase coalescing intervals for noisy events.")
+        elseif avg < 12 and p95 < 16 then
+            addRecommendation("Frame headroom is healthy: consider tighter coalescing intervals only for latency-sensitive events.")
+        end
+    end
+
+    if includes("eventbus") then
+        local coalesced = eventStats.totalCoalesced or 0
+        local dispatched = eventStats.totalDispatched or 0
+        local queued = eventStats.queuedEvents or 0
+        local savings = eventStats.savingsPercent or 0
+        local defers = eventStats.budgetDefers or 0
+        local emergency = eventStats.emergencyFlushes or 0
+
+        addFinding(("EventBus/coalescer: coalesced=%d dispatched=%d queued=%d savings=%.1f%% defers=%d emergencyFlush=%d"):format(
+            coalesced, dispatched, queued, savings, defers, emergency
+        ))
+
+        local top = BuildTopEventRows(eventStats.perEvent, 5)
+        if #top > 0 then
+            for i = 1, #top do
+                local row = top[i]
+                addFinding(("Top event %d: %s (coalesced=%d dispatched=%d saved=%d)"):format(
+                    i, row.event, row.coalesced, row.dispatched, row.saved
+                ))
+            end
+        end
+
+        if coalesced == 0 and dispatched == 0 then
+            addRecommendation("No coalescer traffic detected: route high-frequency events through PerformanceLib:QueueEvent(...) and register handlers in EventBus.")
+        end
+        if coalesced > 50 and savings < 20 then
+            addRecommendation("Low coalescing savings: increase event delays (SetEventDelay) for spammy events or lower their priority.")
+        end
+        if defers > math.max(20, dispatched * 0.25) then
+            addRecommendation("High budget defers: reduce MEDIUM/LOW event volume, increase delay, or lower dirty batch size to reduce frame spikes.")
+        end
+        if emergency > 0 then
+            addRecommendation("Emergency flushes occurred: check CRITICAL event usage and avoid marking non-critical traffic as priority 1.")
+        end
+    end
+
+    if includes("dirty") then
+        addFinding(("Dirty manager: processed=%d batches=%d queued=%d invalid=%d blocks=%d decays=%d"):format(
+            dirtyStats.framesProcessed or 0,
+            dirtyStats.batchesRun or 0,
+            dirtyStats.currentDirtyCount or 0,
+            dirtyStats.invalidFramesSkipped or 0,
+            dirtyStats.processingBlocks or 0,
+            dirtyStats.priorityDecays or 0
+        ))
+        if (dirtyStats.invalidFramesSkipped or 0) > 0 then
+            addRecommendation("Dirty manager skipped invalid frames: validate frame references before MarkFrameDirty calls.")
+        end
+        if (dirtyStats.processingBlocks or 0) > 10 then
+            addRecommendation("Dirty processing re-entry blocks are high: avoid recursive updates and batch UpdateAllElements calls.")
+        end
+    end
+
+    if includes("pool") then
+        addFinding(("Frame pools: created=%d reused=%d acquired=%d released=%d"):format(
+            poolStats.totalCreated or 0,
+            poolStats.totalReused or 0,
+            poolStats.totalAcquired or 0,
+            poolStats.totalReleased or 0
+        ))
+        local created = poolStats.totalCreated or 0
+        local reused = poolStats.totalReused or 0
+        if created > 0 and reused < math.max(5, created * 0.25) then
+            addRecommendation("Pooling reuse is low: ensure temporary frames/indicators are released via ReleaseFrame/ReleaseIndicator.")
+        end
+    end
+
+    if includes("profile") then
+        profilerAnalysis = self.PerformanceProfiler and self.PerformanceProfiler.Analyze and self.PerformanceProfiler:Analyze() or {}
+        addFinding(("Profiler: recording=%s events=%d"):format(
+            (profilerStats.isRecording and "true" or "false"),
+            profilerStats.eventCount or 0
+        ))
+        if profilerAnalysis and profilerAnalysis.totalEvents and profilerAnalysis.totalEvents > 0 then
+            addFinding(("Profiler summary: total=%d duration=%.2fs avg=%.2fms p95=%.2f p99=%.2f"):format(
+                profilerAnalysis.totalEvents or 0,
+                profilerAnalysis.duration or 0,
+                profilerAnalysis.avg or 0,
+                profilerAnalysis.P95 or 0,
+                profilerAnalysis.P99 or 0
+            ))
+        end
+        if (profilerStats.eventCount or 0) == 0 then
+            addRecommendation("No profile timeline captured yet: run /perflib profile start, reproduce combat scenario, then /perflib profile analyze.")
+        end
+    end
+
+    PerfLib:Output("|cFF00FF00PerformanceLib Analyze (" .. scope .. "):|r")
+    if #findings == 0 then
+        PerfLib:Output("  No findings available for this scope.")
+    else
+        for i = 1, #findings do
+            PerfLib:Output("  " .. findings[i])
+        end
+    end
+
+    if #recommendations > 0 then
+        PerfLib:Output("|cFFFFFF00Recommendations:|r")
+        for i = 1, #recommendations do
+            PerfLib:Output(("  %d. %s"):format(i, recommendations[i]))
+        end
+    end
+
+    return {
+        scope = scope,
+        findings = findings,
+        recommendations = recommendations,
+        frame = frameStats,
+        eventbus = eventStats,
+        dirty = dirtyStats,
+        pool = poolStats,
+        profile = profilerAnalysis,
+    }
 end
 
 SlashCmdList["PERFLIB"] = function(msg)
@@ -342,30 +557,36 @@ SlashCmdList["PERFLIB"] = function(msg)
     elseif cmd == "stats" then
         PrintStats()
     elseif cmd == "version" then
-        print("|cFF00FF00PerformanceLib v" .. PerfLib:GetVersion() .. "|r - Initialized by: " .. PerfLib:GetInitiator())
+        PerfLib:Output("|cFF00FF00PerformanceLib v" .. PerfLib:GetVersion() .. "|r - Initialized by: " .. PerfLib:GetInitiator())
     elseif cmd == "preset" then
         local preset = msg:match("preset%s+(%w+)")
         if preset then
             PerfLib:SetPreset(preset)
-            print("|cFF00FF00PerformanceLib preset set to: " .. preset .. "|r")
+            PerfLib:Output("|cFF00FF00PerformanceLib preset set to: " .. preset .. "|r")
         else
-            print("|cFFFFFF00Usage: /perflib preset <Low|Medium|High|Ultra>|r")
+            PerfLib:Output("|cFFFFFF00Usage: /perflib preset <Low|Medium|High|Ultra>|r")
         end
     elseif cmd == "profile" then
         local subcmd = msg:match("profile%s+(%w+)")
+        local scope = msg:match("profile%s+%w+%s+(%w+)")
         if subcmd == "start" then
             PerfLib:StartProfiling()
-            print("|cFF00FF00Performance profiling started|r")
+            PerfLib:Output("|cFF00FF00Performance profiling started|r")
         elseif subcmd == "stop" then
             PerfLib:StopProfiling()
-            print("|cFF00FF00Performance profiling stopped|r")
+            PerfLib:Output("|cFF00FF00Performance profiling stopped|r")
+        elseif subcmd == "analyze" then
+            PerfLib:AnalyzePerformance(scope or "all")
         else
-            print("|cFFFFFF00Usage: /perflib profile <start|stop>|r")
+            PerfLib:Output("|cFFFFFF00Usage: /perflib profile <start|stop|analyze> [all|eventbus|frame|dirty|pool|profile]|r")
         end
+    elseif cmd == "analyze" then
+        local scope = msg:match("analyze%s+(%w+)")
+        PerfLib:AnalyzePerformance(scope or "all")
     elseif cmd == "help" then
         PrintHelp()
     else
-        print("|cFFFF0000Unknown command:|r " .. tostring(cmd))
+        PerfLib:Output("|cFFFF0000Unknown command:|r " .. tostring(cmd))
         PrintHelp()
     end
 end

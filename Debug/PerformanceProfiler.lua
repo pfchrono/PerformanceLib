@@ -24,6 +24,14 @@ local stats = {
     eventBreakdown = {}
 }
 
+local function Output(message, tier)
+    if PerformanceLib and PerformanceLib.Output then
+        PerformanceLib:Output(message, "PerformanceProfiler", tier or 2)
+    else
+        print(message)
+    end
+end
+
 ---Start recording profiling data
 function Profiler:StartProfiling()
     isRecording = true
@@ -31,13 +39,13 @@ function Profiler:StartProfiling()
     startTime = GetTime()
     stats.events = 0
     stats.eventBreakdown = {}
-    print("|cFF00FF00Performance profiling started|r")
+    Output("|cFF00FF00Performance profiling started|r", 2)
 end
 
 ---Stop recording
 function Profiler:StopProfiling()
     isRecording = false
-    print("|cFF00FF00Performance profiling stopped - recorded " .. #timeline .. " events|r")
+    Output("|cFF00FF00Performance profiling stopped - recorded " .. #timeline .. " events|r", 2)
 end
 
 ---Record a profile event
@@ -68,7 +76,7 @@ end
 ---@return table Analysis results
 function Profiler:Analyze()
     if #timeline == 0 then
-        print("|cFFFF0000No profile data recorded|r")
+        Output("|cFFFF0000No profile data recorded|r", 1)
         return {}
     end
     
@@ -88,11 +96,11 @@ function Profiler:Analyze()
     local P95 = durations[math.ceil(#durations * 0.95)]
     local P99 = durations[math.ceil(#durations * 0.99)]
     
-    print("|cFF00FF00Profile Analysis:|r")
-    print(("  Total Events: %d | Duration: %.1f sec"):format(#timeline, timeline[#timeline].time))
-    print(("  Avg: %.2f ms | Min: %.2f ms | Max: %.2f ms"):format(avg, durations[1], durations[#durations]))
-    print(("  P50: %.2f ms | P95: %.2f ms | P99: %.2f ms"):format(P50, P95, P99))
-    print("|cFFFFFF00Top Events:|r")
+    Output("|cFF00FF00Profile Analysis:|r", 2)
+    Output(("  Total Events: %d | Duration: %.1f sec"):format(#timeline, timeline[#timeline].time), 2)
+    Output(("  Avg: %.2f ms | Min: %.2f ms | Max: %.2f ms"):format(avg, durations[1], durations[#durations]), 2)
+    Output(("  P50: %.2f ms | P95: %.2f ms | P99: %.2f ms"):format(P50, P95, P99), 2)
+    Output("|cFFFFFF00Top Events:|r", 2)
     
     local sortedEvents = {}
     for event, data in pairs(stats.eventBreakdown) do
@@ -102,7 +110,7 @@ function Profiler:Analyze()
     
     for i = 1, math.min(5, #sortedEvents) do
         local e = sortedEvents[i]
-        print(("    %s: %d calls, %.2f ms total"):format(e.event, e.count, e.time))
+        Output(("    %s: %d calls, %.2f ms total"):format(e.event, e.count, e.time), 2)
     end
     
     return {
