@@ -17,8 +17,18 @@ EventCoalescer.PRIORITY_LOW = 4
 
 local DEFAULT_DELAY = 0.05
 local MAX_DELAY = 0.5
-local MAX_BUDGET_DEFERS = 3
-local MAX_DEFER_WINDOW = 0.25
+local MAX_BUDGET_DEFERS_BY_PRIORITY = {
+    [1] = 0,
+    [2] = 5,
+    [3] = 7,
+    [4] = 9,
+}
+local MAX_DEFER_WINDOW_BY_PRIORITY = {
+    [1] = 0.0,
+    [2] = 0.35,
+    [3] = 0.45,
+    [4] = 0.55,
+}
 
 local COALESCE_INTERVALS = {
     [1] = 0.000,
@@ -37,6 +47,7 @@ local stats = {
     totalRejected = 0,
     budgetDefers = 0,
     emergencyFlushes = 0,
+    immediateCritical = 0,
     perEvent = {},
     rejectedCounts = {},
     batchSizes = {},
@@ -167,11 +178,15 @@ function EventCoalescer:_DispatchRegistered(eventName)
         data.deferCount = (data.deferCount or 0) + 1
         stats.budgetDefers = stats.budgetDefers + 1
 
-        local waitedTooLong = data.firstQueuedAt > 0 and (now - data.firstQueuedAt) >= MAX_DEFER_WINDOW
-        if data.priority ~= EventCoalescer.PRIORITY_CRITICAL and data.deferCount < MAX_BUDGET_DEFERS and not waitedTooLong then
+        local maxDefers = MAX_BUDGET_DEFERS_BY_PRIORITY[data.priority] or 5
+        local maxWindow = MAX_DEFER_WINDOW_BY_PRIORITY[data.priority] or 0.35
+        local waitedTooLong = data.firstQueuedAt > 0 and (now - data.firstQueuedAt) >= maxWindow
+        if data.priority ~= EventCoalescer.PRIORITY_CRITICAL and data.deferCount < maxDefers and not waitedTooLong then
             return false
         end
-        stats.emergencyFlushes = stats.emergencyFlushes + 1
+        if data.priority ~= EventCoalescer.PRIORITY_CRITICAL then
+            stats.emergencyFlushes = stats.emergencyFlushes + 1
+        end
     end
 
     local args = data.pendingArgs or {}
@@ -222,7 +237,7 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
         stats.perEvent[eventName].coalesced = stats.perEvent[eventName].coalesced + 1
 
         if registered.priority == EventCoalescer.PRIORITY_CRITICAL then
-            stats.emergencyFlushes = stats.emergencyFlushes + 1
+            stats.immediateCritical = stats.immediateCritical + 1
             self:_DispatchRegistered(eventName)
             return true
         end
@@ -349,6 +364,7 @@ function EventCoalescer:GetStats()
         totalRejected = stats.totalRejected,
         budgetDefers = stats.budgetDefers,
         emergencyFlushes = stats.emergencyFlushes,
+        immediateCritical = stats.immediateCritical,
         queuedEvents = queuedCount,
         savingsPercent = savingsPercent,
         perEvent = stats.perEvent,
@@ -363,6 +379,7 @@ function EventCoalescer:ResetStats()
     stats.totalRejected = 0
     stats.budgetDefers = 0
     stats.emergencyFlushes = 0
+    stats.immediateCritical = 0
     stats.perEvent = {}
     stats.rejectedCounts = {}
     stats.batchSizes = {}

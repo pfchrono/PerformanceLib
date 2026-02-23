@@ -343,6 +343,7 @@ local function PrintStats()
     PerfLib:Output("|cFF00FF00PerformanceLib Stats:|r")
     PerfLib:Output(("  Frame Avg: %.2f ms | P95: %.2f | P99: %.2f"):format(frameStats.avg or 0, frameStats.P95 or 0, frameStats.P99 or 0))
     PerfLib:Output(("  Events: coalesced=%d dispatched=%d queued=%d"):format(eventStats.totalCoalesced or 0, eventStats.totalDispatched or 0, eventStats.queuedEvents or 0))
+    PerfLib:Output(("  Events detail: defers=%d emergencyFlush=%d immediateCritical=%d"):format(eventStats.budgetDefers or 0, eventStats.emergencyFlushes or 0, eventStats.immediateCritical or 0))
     PerfLib:Output(("  Dirty: processed=%d batches=%d queued=%d invalid=%d"):format(dirtyStats.framesProcessed or 0, dirtyStats.batchesRun or 0, dirtyStats.currentDirtyCount or 0, dirtyStats.invalidFramesSkipped or 0))
     PerfLib:Output(("  Pools: created=%d reused=%d released=%d"):format(poolStats.totalCreated or 0, poolStats.totalReused or 0, poolStats.totalReleased or 0))
     PerfLib:Output(("  Systems: coalescer=%s dirty=%s"):format(coalescerEnabled and "on" or "off", dirtyEnabled and "on" or "off"))
@@ -428,8 +429,9 @@ function PerfLib:AnalyzePerformance(scope)
         local defers = eventStats.budgetDefers or 0
         local emergency = eventStats.emergencyFlushes or 0
 
-        addFinding(("EventBus/coalescer: coalesced=%d dispatched=%d queued=%d savings=%.1f%% defers=%d emergencyFlush=%d"):format(
-            coalesced, dispatched, queued, savings, defers, emergency
+        local immediateCritical = eventStats.immediateCritical or 0
+        addFinding(("EventBus/coalescer: coalesced=%d dispatched=%d queued=%d savings=%.1f%% defers=%d emergencyFlush=%d immediateCritical=%d"):format(
+            coalesced, dispatched, queued, savings, defers, emergency, immediateCritical
         ))
 
         local top = BuildTopEventRows(eventStats.perEvent, 5)
@@ -451,8 +453,8 @@ function PerfLib:AnalyzePerformance(scope)
         if defers > math.max(20, dispatched * 0.25) then
             addRecommendation("High budget defers: reduce MEDIUM/LOW event volume, increase delay, or lower dirty batch size to reduce frame spikes.")
         end
-        if emergency > 0 then
-            addRecommendation("Emergency flushes occurred: check CRITICAL event usage and avoid marking non-critical traffic as priority 1.")
+        if emergency > math.max(10, dispatched * 0.10) then
+            addRecommendation("Emergency flushes are high: raise delays on noisy HIGH/MEDIUM events and reserve priority 1 for true critical state changes.")
         end
     end
 
@@ -482,8 +484,13 @@ function PerfLib:AnalyzePerformance(scope)
         ))
         local created = poolStats.totalCreated or 0
         local reused = poolStats.totalReused or 0
-        if created > 0 and reused < math.max(5, created * 0.25) then
+        local acquired = poolStats.totalAcquired or 0
+        local released = poolStats.totalReleased or 0
+        local churn = math.min(acquired, released)
+        if churn >= 10 and created > 0 and reused < math.max(5, created * 0.25) then
             addRecommendation("Pooling reuse is low: ensure temporary frames/indicators are released via ReleaseFrame/ReleaseIndicator.")
+        elseif created > 0 and released == 0 then
+            addFinding("Pool lifecycle note: frames appear long-lived (created with no releases), so low reuse may be expected.")
         end
     end
 

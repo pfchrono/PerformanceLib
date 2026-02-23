@@ -43,6 +43,7 @@ local stats = {
 -- State
 local isProcessing = false
 local lastProcessTime = GetTime()
+local lastTickTime = 0
 local batchSize = 10
 
 ---Initialize DirtyFlagManager
@@ -118,14 +119,30 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
     local frameTimeBudget = PerformanceLib.FrameTimeBudget
     local budgetStats = frameTimeBudget and frameTimeBudget.GetStatistics and frameTimeBudget:GetStatistics() or nil
     local adaptiveBatch = batchSize
+    local minTickInterval = 0.0
     
     -- Adapt batch size based on frame time budget
     if budgetStats then
-        if budgetStats.avg and budgetStats.avg < 12 then
-            adaptiveBatch = math.min(20, batchSize * 2)  -- Double if under budget
-        elseif budgetStats.avg and budgetStats.avg > 14 then
-            adaptiveBatch = math.max(2, math.floor(batchSize / 2))  -- Halve if over budget
+        local avg = budgetStats.avg or 0
+        local p95 = budgetStats.P95 or 0
+        if avg > 18 or p95 > 28 then
+            adaptiveBatch = math.max(2, math.floor(batchSize / 4))
+            minTickInterval = 0.030
+        elseif avg > 16 or p95 > 24 then
+            adaptiveBatch = math.max(2, math.floor(batchSize / 3))
+            minTickInterval = 0.024
+        elseif avg > 14 or p95 > 20 then
+            adaptiveBatch = math.max(2, math.floor(batchSize / 2))
+            minTickInterval = 0.018
+        elseif avg < 11 and p95 < 16 then
+            adaptiveBatch = math.min(16, batchSize * 2)
+            minTickInterval = 0.0
         end
+    end
+
+    if not forceFlush and minTickInterval > 0 and (now - lastTickTime) < minTickInterval then
+        isProcessing = false
+        return
     end
     
     -- Process by priority (high to low)
@@ -184,6 +201,7 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
         lastProcessTime = now
     end
     
+    lastTickTime = now
     isProcessing = false
 end
 

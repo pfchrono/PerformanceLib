@@ -98,6 +98,17 @@ local function FormatNumber(num)
     return ("%.0f"):format(num)
 end
 
+local function GetActivePreset()
+    if not PerformanceLib or not PerformanceLib.db then
+        return "Medium"
+    end
+    local preset = tostring(PerformanceLib.db.presets or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if preset == "" then
+        return "Medium"
+    end
+    return preset
+end
+
 function Dashboard:Update()
     if not dashboardFrame or not dashboardFrame:IsShown() then
         return
@@ -111,6 +122,7 @@ function Dashboard:Update()
 
     local lines = {}
     lines[#lines + 1] = "|cFFFFD700=== Performance ===|r"
+    lines[#lines + 1] = ("Preset: |cFF00B0F7%s|r"):format(GetActivePreset())
     lines[#lines + 1] = ("FPS: |cFF00FF00%.1f|r"):format(fps)
     lines[#lines + 1] = ("Frame Avg: |cFF00FF00%.2fms|r"):format(frameStats.avg or 0)
     lines[#lines + 1] = ("P95 / P99: |cFF00FF00%.2f / %.2f|r"):format(frameStats.P95 or 0, frameStats.P99 or 0)
