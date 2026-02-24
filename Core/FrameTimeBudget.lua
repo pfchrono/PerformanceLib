@@ -47,6 +47,8 @@ local deferredQueues = {
     {}, -- MEDIUM
     {}, -- LOW
 }
+local deferredQueueHeads = { 1, 1, 1, 1 }
+local deferredPendingCount = 0
 
 -- Statistics
 local stats = {
@@ -57,6 +59,43 @@ local stats = {
     deferredCount = 0,
     histogram = {}
 }
+
+local function DeferredQueueLength(priority)
+    local queue = deferredQueues[priority]
+    local head = deferredQueueHeads[priority]
+    if not queue or not head or head > #queue then
+        return 0
+    end
+    return (#queue - head + 1)
+end
+
+local function CompactDeferredQueue(priority)
+    local queue = deferredQueues[priority]
+    local head = deferredQueueHeads[priority]
+    if not queue or not head then
+        return
+    end
+    if head <= 1 then
+        return
+    end
+    if head > #queue then
+        deferredQueues[priority] = {}
+        deferredQueueHeads[priority] = 1
+        return
+    end
+
+    local compact = {}
+    local write = 1
+    for i = head, #queue do
+        local item = queue[i]
+        if item ~= nil then
+            compact[write] = item
+            write = write + 1
+        end
+    end
+    deferredQueues[priority] = compact
+    deferredQueueHeads[priority] = 1
+end
 
 ---Initialize FrameTimeBudget
 function FrameTimeBudget:Initialize()
@@ -194,7 +233,7 @@ function FrameTimeBudget:DeferUpdate(callback, priority, context)
     end
     
     -- Defer the operation
-    if #deferredQueues[priority] >= MAX_DEFERRED_QUEUE then
+    if DeferredQueueLength(priority) >= MAX_DEFERRED_QUEUE then
         -- Drop LOW priority callbacks if queue full
         if priority == FrameTimeBudget.PRIORITY_LOW then
             stats.droppedCallbacks = stats.droppedCallbacks + 1
@@ -203,6 +242,7 @@ function FrameTimeBudget:DeferUpdate(callback, priority, context)
     end
     
     table.insert(deferredQueues[priority], {callback = callback, context = context})
+    deferredPendingCount = deferredPendingCount + 1
     stats.deferredCount = stats.deferredCount + 1
     return true
 end
@@ -217,8 +257,15 @@ function FrameTimeBudget:ProcessDeferred()
             break  -- Stop if budget exceeded
         end
         
-        while #deferredQueues[priority] > 0 do
-            local item = table.remove(deferredQueues[priority], 1)
+        local queue = deferredQueues[priority]
+        local head = deferredQueueHeads[priority]
+        while DeferredQueueLength(priority) > 0 do
+            local item = queue[head]
+            queue[head] = nil
+            head = head + 1
+            deferredQueueHeads[priority] = head
+            deferredPendingCount = math.max(0, deferredPendingCount - 1)
+
             local ok, err = pcall(item.callback, item.context)
             if not ok then
                 PerformanceLib:Debug("FrameTimeBudget", "Deferred callback error: " .. tostring(err), 1)
@@ -228,6 +275,13 @@ function FrameTimeBudget:ProcessDeferred()
             if processed >= 5 then
                 return  -- Limit batch size
             end
+        end
+
+        if DeferredQueueLength(priority) == 0 then
+            deferredQueues[priority] = {}
+            deferredQueueHeads[priority] = 1
+        elseif deferredQueueHeads[priority] > 32 and deferredQueueHeads[priority] > math.floor(#deferredQueues[priority] / 2) then
+            CompactDeferredQueue(priority)
         end
     end
 end
@@ -249,7 +303,7 @@ function FrameTimeBudget:GetStatistics()
         P95 = percentiles.P95,
         P99 = percentiles.P99,
         histogram = stats.histogram,
-        deferredCount = #deferredQueues[1] + #deferredQueues[2] + #deferredQueues[3] + #deferredQueues[4],
+        deferredCount = deferredPendingCount,
         droppedCallbacks = stats.droppedCallbacks
     }
 end
@@ -278,6 +332,11 @@ function FrameTimeBudget:ResetStatistics()
     for i = 1, HISTORY_SIZE do
         frameTimeHistory[i] = 0
     end
+    for i = 1, 4 do
+        deferredQueues[i] = {}
+        deferredQueueHeads[i] = 1
+    end
+    deferredPendingCount = 0
     lastFrameTime = nil
 end
 

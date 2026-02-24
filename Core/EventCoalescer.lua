@@ -68,6 +68,40 @@ local function DispatchToBus(event, ...)
     end
 end
 
+local function HasPendingWork()
+    for _ in pairs(queuedEvents) do
+        return true
+    end
+
+    for _, data in pairs(registeredEvents) do
+        if data and data.coalesceCount and data.coalesceCount > 0 then
+            return true
+        end
+    end
+
+    return false
+end
+
+function EventCoalescer:_SetProcessingActive(active)
+    if not self._frame then
+        return
+    end
+
+    active = active and true or false
+    if self._processingActive == active then
+        return
+    end
+    self._processingActive = active
+
+    if active then
+        self._frame:SetScript("OnUpdate", function()
+            self:ProcessQueue()
+        end)
+    else
+        self._frame:SetScript("OnUpdate", nil)
+    end
+end
+
 function EventCoalescer:Initialize()
     if self._initialized then
         return
@@ -75,9 +109,7 @@ function EventCoalescer:Initialize()
     self._initialized = true
     self._enabled = true
     self._frame = CreateFrame("Frame")
-    self._frame:SetScript("OnUpdate", function()
-        self:ProcessQueue()
-    end)
+    self:_SetProcessingActive(false)
 end
 
 function EventCoalescer:CoalesceEvent(eventName, delay, callback, priority)
@@ -206,6 +238,7 @@ function EventCoalescer:_DispatchRegistered(eventName)
     data.firstQueuedAt = 0
     data.deferCount = 0
     data.scheduled = false
+    self:_SetProcessingActive(HasPendingWork())
     return true
 end
 
@@ -235,6 +268,7 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
         EnsureEventStats(eventName)
         stats.totalCoalesced = stats.totalCoalesced + 1
         stats.perEvent[eventName].coalesced = stats.perEvent[eventName].coalesced + 1
+        self:_SetProcessingActive(true)
 
         if registered.priority == EventCoalescer.PRIORITY_CRITICAL then
             stats.immediateCritical = stats.immediateCritical + 1
@@ -249,6 +283,7 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
             registered.scheduled = true
             C_Timer.After(math.max(0, registered.delay - since), function()
                 self:_DispatchRegistered(eventName)
+                self:_SetProcessingActive(HasPendingWork())
             end)
         end
         return true
@@ -280,10 +315,16 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
     queuedEvents[eventName].count = queuedEvents[eventName].count + 1
     stats.totalCoalesced = stats.totalCoalesced + 1
     stats.perEvent[eventName].coalesced = stats.perEvent[eventName].coalesced + 1
+    self:_SetProcessingActive(true)
     return true
 end
 
 function EventCoalescer:ProcessQueue()
+    if not self._enabled then
+        self:_SetProcessingActive(false)
+        return
+    end
+
     local now = GetTime()
 
     for eventName, data in pairs(queuedEvents) do
@@ -304,10 +345,17 @@ function EventCoalescer:ProcessQueue()
     for eventName in pairs(registeredEvents) do
         self:_DispatchRegistered(eventName)
     end
+
+    self:_SetProcessingActive(HasPendingWork())
 end
 
 function EventCoalescer:SetEnabled(enabled)
     self._enabled = enabled and true or false
+    if self._enabled then
+        self:_SetProcessingActive(HasPendingWork())
+    else
+        self:_SetProcessingActive(false)
+    end
 end
 
 function EventCoalescer:SetCoalesceInterval(priority, interval)
@@ -334,6 +382,8 @@ function EventCoalescer:Flush()
     for eventName in pairs(registeredEvents) do
         self:_DispatchRegistered(eventName)
     end
+
+    self:_SetProcessingActive(HasPendingWork())
 end
 
 function EventCoalescer:GetStats()

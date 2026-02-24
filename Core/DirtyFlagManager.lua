@@ -30,6 +30,8 @@ local dirtyFrames = {
     {}, -- MEDIUM
     {}, -- LOW
 }
+local dirtyHeads = { 1, 1, 1, 1 }
+local totalDirtyCount = 0
 
 -- Statistics
 local stats = {
@@ -46,6 +48,65 @@ local lastProcessTime = GetTime()
 local lastTickTime = 0
 local batchSize = 10
 
+local function QueueLength(priority)
+    local queue = dirtyFrames[priority]
+    local head = dirtyHeads[priority]
+    if not queue or not head or head > #queue then
+        return 0
+    end
+    return (#queue - head + 1)
+end
+
+local function CompactQueue(priority)
+    local queue = dirtyFrames[priority]
+    local head = dirtyHeads[priority]
+    if not queue or not head then
+        return
+    end
+    if head <= 1 then
+        return
+    end
+    if head > #queue then
+        dirtyFrames[priority] = {}
+        dirtyHeads[priority] = 1
+        return
+    end
+
+    local compact = {}
+    local write = 1
+    for i = head, #queue do
+        local frame = queue[i]
+        if frame ~= nil then
+            compact[write] = frame
+            write = write + 1
+        end
+    end
+    dirtyFrames[priority] = compact
+    dirtyHeads[priority] = 1
+end
+
+local function HasPendingDirty()
+    return totalDirtyCount > 0
+end
+
+function DirtyFlagManager:_SetProcessingActive(active)
+    if not self._frame then
+        return
+    end
+    active = active and true or false
+    if self._processingActive == active then
+        return
+    end
+    self._processingActive = active
+    if active then
+        self._frame:SetScript("OnUpdate", function()
+            DirtyFlagManager:ProcessDirty()
+        end)
+    else
+        self._frame:SetScript("OnUpdate", nil)
+    end
+end
+
 ---Initialize DirtyFlagManager
 function DirtyFlagManager:Initialize()
     if self._initialized then return end
@@ -60,10 +121,8 @@ function DirtyFlagManager:Initialize()
             DirtyFlagManager:ProcessDirty(true)  -- Force flush on combat change
         end
     end)
-    
-    self._frame:SetScript("OnUpdate", function()
-        DirtyFlagManager:ProcessDirty()
-    end)
+
+    self:_SetProcessingActive(false)
 end
 
 ---Mark a frame as dirty (needs update)
@@ -75,13 +134,17 @@ function DirtyFlagManager:MarkDirty(frame, priority)
     priority = math.max(1, math.min(4, priority or 2))
     
     -- Add to priority queue if not already present
-    for _, existingFrame in ipairs(dirtyFrames[priority]) do
-        if existingFrame == frame then
+    local queue = dirtyFrames[priority]
+    local head = dirtyHeads[priority]
+    for i = head, #queue do
+        if queue[i] == frame then
             return  -- Already marked
         end
     end
-    
-    table.insert(dirtyFrames[priority], frame)
+
+    table.insert(queue, frame)
+    totalDirtyCount = totalDirtyCount + 1
+    self:_SetProcessingActive(true)
 end
 
 ---Validate frame before processing
@@ -109,6 +172,9 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
     if not self._enabled or isProcessing then
         if isProcessing then
             stats.processingBlocks = stats.processingBlocks + 1
+        end
+        if not self._enabled then
+            self:_SetProcessingActive(false)
         end
         return
     end
@@ -148,10 +214,15 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
     -- Process by priority (high to low)
     for priority = 4, 1, -1 do
         local queue = dirtyFrames[priority]
+        local head = dirtyHeads[priority]
         local processed = 0
         
-        while #queue > 0 and (forceFlush or processed < adaptiveBatch) do
-            local frame = table.remove(queue, 1)
+        while QueueLength(priority) > 0 and (forceFlush or processed < adaptiveBatch) do
+            local frame = queue[head]
+            queue[head] = nil
+            head = head + 1
+            dirtyHeads[priority] = head
+            totalDirtyCount = math.max(0, totalDirtyCount - 1)
             
             if self:_ValidateFrame(frame) then
                 local ok, err = pcall(function()
@@ -176,6 +247,13 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
                 stats.invalidFramesSkipped = stats.invalidFramesSkipped + 1
             end
         end
+
+        if QueueLength(priority) == 0 then
+            dirtyFrames[priority] = {}
+            dirtyHeads[priority] = 1
+        elseif dirtyHeads[priority] > 32 and dirtyHeads[priority] > math.floor(#dirtyFrames[priority] / 2) then
+            CompactQueue(priority)
+        end
         
         if processed > 0 then
             stats.batchesRun = stats.batchesRun + 1
@@ -192,10 +270,14 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
     -- Priority decay (reduce priority over time to prevent starvation)
     if now - lastProcessTime > 5 then
         for priority = 1, 3 do
-            for _, frame in ipairs(dirtyFrames[priority]) do
+            local srcQueue = dirtyFrames[priority]
+            local srcHead = dirtyHeads[priority]
+            for i = srcHead, #srcQueue do
+                local frame = srcQueue[i]
                 table.insert(dirtyFrames[priority + 1], frame)
             end
             dirtyFrames[priority] = {}
+            dirtyHeads[priority] = 1
         end
         stats.priorityDecays = stats.priorityDecays + 1
         lastProcessTime = now
@@ -203,12 +285,20 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
     
     lastTickTime = now
     isProcessing = false
+    if not HasPendingDirty() then
+        self:_SetProcessingActive(false)
+    end
 end
 
 ---Set enabled state
 ---@param enabled boolean
 function DirtyFlagManager:SetEnabled(enabled)
-    self._enabled = enabled
+    self._enabled = enabled and true or false
+    if not self._enabled then
+        self:_SetProcessingActive(false)
+    elseif HasPendingDirty() then
+        self:_SetProcessingActive(true)
+    end
 end
 
 ---Set batch size
@@ -220,11 +310,7 @@ end
 ---Get dirty frame count
 ---@return integer Total dirty frames
 function DirtyFlagManager:GetDirtyCount()
-    local total = 0
-    for _, queue in ipairs(dirtyFrames) do
-        total = total + #queue
-    end
-    return total
+    return totalDirtyCount
 end
 
 ---Get statistics
