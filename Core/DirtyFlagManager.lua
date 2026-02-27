@@ -12,6 +12,17 @@
 
 local _, PerformanceLib = ...
 
+-- Upvalue cache: reduce global table lookups on hot paths
+local GetTime = GetTime
+local math_max = math.max
+local math_min = math.min
+local math_floor = math.floor
+local math_ceil = math.ceil
+local table_insert = table.insert
+local table_remove = table.remove
+local pcall = pcall
+local unpack = unpack or table.unpack
+
 if not PerformanceLib.DirtyFlagManager then
     PerformanceLib.DirtyFlagManager = {}
 end
@@ -131,7 +142,7 @@ end
 function DirtyFlagManager:MarkDirty(frame, priority)
     if not self._enabled or not frame then return end
     
-    priority = math.max(1, math.min(4, priority or 2))
+    priority = math_max(1, math_min(4, priority or 2))
     
     -- Add to priority queue if not already present
     local queue = dirtyFrames[priority]
@@ -142,7 +153,7 @@ function DirtyFlagManager:MarkDirty(frame, priority)
         end
     end
 
-    table.insert(queue, frame)
+    table_insert(queue, frame)
     totalDirtyCount = totalDirtyCount + 1
     self:_SetProcessingActive(true)
 end
@@ -192,16 +203,16 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
         local avg = budgetStats.avg or 0
         local p95 = budgetStats.P95 or 0
         if avg > 18 or p95 > 28 then
-            adaptiveBatch = math.max(2, math.floor(batchSize / 4))
+            adaptiveBatch = math_max(2, math_floor(batchSize / 4))
             minTickInterval = 0.030
         elseif avg > 16 or p95 > 24 then
-            adaptiveBatch = math.max(2, math.floor(batchSize / 3))
+            adaptiveBatch = math_max(2, math_floor(batchSize / 3))
             minTickInterval = 0.024
         elseif avg > 14 or p95 > 20 then
-            adaptiveBatch = math.max(2, math.floor(batchSize / 2))
+            adaptiveBatch = math_max(2, math_floor(batchSize / 2))
             minTickInterval = 0.018
         elseif avg < 11 and p95 < 16 then
-            adaptiveBatch = math.min(16, batchSize * 2)
+            adaptiveBatch = math_min(16, batchSize * 2)
             minTickInterval = 0.0
         end
     end
@@ -222,16 +233,25 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
             queue[head] = nil
             head = head + 1
             dirtyHeads[priority] = head
-            totalDirtyCount = math.max(0, totalDirtyCount - 1)
+            totalDirtyCount = math_max(0, totalDirtyCount - 1)
             
             if self:_ValidateFrame(frame) then
                 local ok, err = pcall(function()
-                    if frame.UpdateAll then
-                        frame:UpdateAll()
-                    elseif frame.Update then
+                    -- Prefer incremental handlers first to avoid forcing
+                    -- frame-wide refreshes on dirty bursts.
+                    if frame.Update then
                         frame:Update()
+                    elseif frame.sufUnitType or frame.__isSimpleUnitFrames then
+                        -- Avoid broad refresh fallbacks for SUF-owned frames.
+                        if frame.UpdateHealth then
+                            frame:UpdateHealth()
+                        elseif frame.UpdatePower then
+                            frame:UpdatePower()
+                        end
                     elseif frame.UpdateAllElements then
                         frame:UpdateAllElements("PerformanceLib_Dirty")
+                    elseif frame.UpdateAll then
+                        frame:UpdateAll()
                     elseif frame.UpdateHealth then
                         frame:UpdateHealth()
                     end
@@ -251,7 +271,7 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
         if QueueLength(priority) == 0 then
             dirtyFrames[priority] = {}
             dirtyHeads[priority] = 1
-        elseif dirtyHeads[priority] > 32 and dirtyHeads[priority] > math.floor(#dirtyFrames[priority] / 2) then
+        elseif dirtyHeads[priority] > 32 and dirtyHeads[priority] > math_floor(#dirtyFrames[priority] / 2) then
             CompactQueue(priority)
         end
         
@@ -274,7 +294,7 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
             local srcHead = dirtyHeads[priority]
             for i = srcHead, #srcQueue do
                 local frame = srcQueue[i]
-                table.insert(dirtyFrames[priority + 1], frame)
+                table_insert(dirtyFrames[priority + 1], frame)
             end
             dirtyFrames[priority] = {}
             dirtyHeads[priority] = 1
@@ -304,7 +324,7 @@ end
 ---Set batch size
 ---@param size integer Frames per batch
 function DirtyFlagManager:SetBatchSize(size)
-    batchSize = math.max(2, size)
+    batchSize = math_max(2, size)
 end
 
 ---Get dirty frame count

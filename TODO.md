@@ -274,7 +274,7 @@ dragged position. [COMPLETED]
 
 ---
 
-### TODO-09 · Upvalue caching in hot-path files
+### TODO-09 · Upvalue caching in hot-path files [COMPLETED]
 **Files:** `Core/EventCoalescer.lua`, `Core/DirtyFlagManager.lua`, `Core/FrameTimeBudget.lua`
 
 **Problem:** All three files run code every frame but repeatedly look up globals like
@@ -302,10 +302,11 @@ Then replace all usages of these globals throughout each file with the local nam
 - Community standard for any OnUpdate-driven code.
 
 **Scope:** ~10 lines added per file + ~25 name replacements across all three. No logic changes.
+[Test: `/perflib stats`, combat/heavy updates, `/perflib analyze all`, and dashboard checks showed normal behavior with no regressions.] [COMPLETED]
 
 ---
 
-### TODO-10 · FrameTimeBudget — use `elapsed` directly in OnUpdate
+### TODO-10 · FrameTimeBudget — use `elapsed` directly in OnUpdate [COMPLETED]
 **File:** `Core/FrameTimeBudget.lua`
 **Lines:** ~112–124 (`TrackFrameTime` + its `SetScript` call)
 
@@ -332,9 +333,11 @@ end
 **Note:** `math.min(elapsed, 0.5)` protects history from loading-screen resumption spikes
 where `elapsed` can be several seconds. Behavior is otherwise identical.
 
+[Test: `/perflib stats` + `/perflib analyze all` confirmed stable frame metrics and profiler behavior after elapsed-based tracking change.] [COMPLETED]
+
 ---
 
-### TODO-11 · MLOptimizer — real transition-table learning
+### TODO-11 · MLOptimizer — real transition-table learning [COMPLETED]
 **Files:** `ML/MLOptimizer.lua`, `Core/EventCoalescer.lua`
 
 **Problem:** `Train()` is a no-op. `stats.accuracy` is never computed. All predictions
@@ -377,6 +380,8 @@ end
 **Approach rationale:** A Markov-style transition table (observed frequency of A→B
 transitions) is the appropriate "ML for Lua" approach — no external libraries, deterministic,
 interpretable, and produces useful `PredictNextEvent` results.
+
+[Test Phase: run normal combat/event activity for several minutes, then run `/perflib analyze all` (and any ML stats command you expose) and confirm observed transitions are non-zero, training runs increment, and prediction accuracy is no longer permanently 0.0.] [COMPLETED]
 
 ---
 
@@ -476,9 +481,9 @@ when processing runs. Do this after TODO-09 upvalue work is committed to same fi
 | TODO-06 | 2 | Dashboard.lua | GetNetStats() latency section [COMPLETED] | None |
 | TODO-07 | 2 | Dashboard.lua | Position persistence [COMPLETED] | Negligible |
 | TODO-08 | 2 | Dashboard.lua | gcinfo() instead of collectgarbage [COMPLETED] | None |
-| TODO-09 | 3 | EventCoalescer/DirtyFlag/FrameTime | Upvalue caching | None |
-| TODO-10 | 3 | FrameTimeBudget.lua | Use elapsed in TrackFrameTime | Low |
-| TODO-11 | 3 | MLOptimizer.lua + EventCoalescer | Transition-table learning | Low |
+| TODO-09 | 3 | EventCoalescer/DirtyFlag/FrameTime | Upvalue caching [COMPLETED] | None |
+| TODO-10 | 3 | FrameTimeBudget.lua | Use elapsed in TrackFrameTime [COMPLETED] | Low |
+| TODO-11 | 3 | MLOptimizer.lua + EventCoalescer | Transition-table learning [COMPLETED] | Low |
 | TODO-12 | 3 | EXAMPLE_ADDON.lua | RegisterUnitEvent docs | None |
 | TODO-13 | 4 | Dashboard.lua | Color-coded FPS/P95 + defers stat | None |
 | TODO-14 | 4 | DirtyFlagManager.lua | elapsed-based tick throttle | Low |

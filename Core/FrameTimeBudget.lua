@@ -9,6 +9,16 @@
 
 local _, PerformanceLib = ...
 
+-- Upvalue cache: reduce global table lookups on hot paths
+local math_max = math.max
+local math_min = math.min
+local math_floor = math.floor
+local math_ceil = math.ceil
+local table_insert = table.insert
+local table_remove = table.remove
+local pcall = pcall
+local unpack = unpack or table.unpack
+
 if not PerformanceLib.FrameTimeBudget then
     PerformanceLib.FrameTimeBudget = {}
 end
@@ -27,7 +37,6 @@ local HISTOGRAM_BUCKETS = 6
 local frameTimeHistory = {}
 local frameTimeHistoryIdx = 1
 local HISTORY_SIZE = 100
-local lastFrameTime = nil
 local runningTotal = 0
 local frameCount = 0
 local historyCount = 0
@@ -109,19 +118,17 @@ function FrameTimeBudget:Initialize()
     
     self._targetFrameTime = 16.67 -- 60 FPS
     self._frame = CreateFrame("Frame")
-    self._frame:SetScript("OnUpdate", function() self:TrackFrameTime() end)
+    self._frame:SetScript("OnUpdate", function(_, elapsed) self:TrackFrameTime(elapsed) end)
 end
 
 ---Track frame time and update statistics O(1)
-function FrameTimeBudget:TrackFrameTime()
-    local currentTime = GetTime()
-    if not lastFrameTime then
-        lastFrameTime = currentTime
+function FrameTimeBudget:TrackFrameTime(elapsed)
+    if not elapsed or elapsed <= 0 then
         return
     end
 
-    local deltaTime = (currentTime - lastFrameTime) * 1000 -- ms
-    lastFrameTime = currentTime
+    -- Use engine-provided elapsed and clamp large resume spikes.
+    local deltaTime = math_min(elapsed, 0.5) * 1000 -- ms
     
     -- O(1) incremental averaging
     local oldSample = frameTimeHistory[frameTimeHistoryIdx] or 0
@@ -140,9 +147,9 @@ function FrameTimeBudget:TrackFrameTime()
     end
     
     -- Maintain running avg
-    stats.avg = runningTotal / math.max(1, historyCount)
-    stats.min = math.min(stats.min, deltaTime)
-    stats.max = math.max(stats.max, deltaTime)
+    stats.avg = runningTotal / math_max(1, historyCount)
+    stats.min = math_min(stats.min, deltaTime)
+    stats.max = math_max(stats.max, deltaTime)
     
     -- Lazy percentile calculation (every 30 frames)
     if frameCount % 30 == 0 then
@@ -170,9 +177,9 @@ function FrameTimeBudget:CalculatePercentiles()
     
     table.sort(sorted)
     
-    percentiles.P50 = sorted[math.ceil(len * 0.5)]
-    percentiles.P95 = sorted[math.ceil(len * 0.95)]
-    percentiles.P99 = sorted[math.ceil(len * 0.99)]
+    percentiles.P50 = sorted[math_ceil(len * 0.5)]
+    percentiles.P95 = sorted[math_ceil(len * 0.95)]
+    percentiles.P99 = sorted[math_ceil(len * 0.99)]
 end
 
 ---Update histogram distribution
@@ -241,7 +248,7 @@ function FrameTimeBudget:DeferUpdate(callback, priority, context)
         end
     end
     
-    table.insert(deferredQueues[priority], {callback = callback, context = context})
+    table_insert(deferredQueues[priority], {callback = callback, context = context})
     deferredPendingCount = deferredPendingCount + 1
     stats.deferredCount = stats.deferredCount + 1
     return true
@@ -264,7 +271,7 @@ function FrameTimeBudget:ProcessDeferred()
             queue[head] = nil
             head = head + 1
             deferredQueueHeads[priority] = head
-            deferredPendingCount = math.max(0, deferredPendingCount - 1)
+            deferredPendingCount = math_max(0, deferredPendingCount - 1)
 
             local ok, err = pcall(item.callback, item.context)
             if not ok then
@@ -280,7 +287,7 @@ function FrameTimeBudget:ProcessDeferred()
         if DeferredQueueLength(priority) == 0 then
             deferredQueues[priority] = {}
             deferredQueueHeads[priority] = 1
-        elseif deferredQueueHeads[priority] > 32 and deferredQueueHeads[priority] > math.floor(#deferredQueues[priority] / 2) then
+        elseif deferredQueueHeads[priority] > 32 and deferredQueueHeads[priority] > math_floor(#deferredQueues[priority] / 2) then
             CompactDeferredQueue(priority)
         end
     end
@@ -337,7 +344,6 @@ function FrameTimeBudget:ResetStatistics()
         deferredQueueHeads[i] = 1
     end
     deferredPendingCount = 0
-    lastFrameTime = nil
 end
 
 -- Auto-initialize

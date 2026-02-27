@@ -4,6 +4,17 @@
 
 local _, PerformanceLib = ...
 
+-- Upvalue cache: reduce global table lookups on hot paths
+local GetTime = GetTime
+local math_max = math.max
+local math_min = math.min
+local math_floor = math.floor
+local math_ceil = math.ceil
+local table_insert = table.insert
+local table_remove = table.remove
+local pcall = pcall
+local unpack = unpack or table.unpack
+
 if not PerformanceLib.EventCoalescer then
     PerformanceLib.EventCoalescer = {}
 end
@@ -68,6 +79,13 @@ local function DispatchToBus(event, ...)
     end
 end
 
+local function ObserveDispatchedEvent(eventName)
+    local optimizer = PerformanceLib.MLOptimizer
+    if optimizer and optimizer.ObserveEvent then
+        pcall(optimizer.ObserveEvent, optimizer, eventName)
+    end
+end
+
 local function HasPendingWork()
     for _ in pairs(queuedEvents) do
         return true
@@ -117,8 +135,8 @@ function EventCoalescer:CoalesceEvent(eventName, delay, callback, priority)
         return false
     end
 
-    delay = math.max(0.0, math.min(MAX_DELAY, tonumber(delay) or DEFAULT_DELAY))
-    priority = math.max(1, math.min(4, tonumber(priority) or EventCoalescer.PRIORITY_MEDIUM))
+    delay = math_max(0.0, math_min(MAX_DELAY, tonumber(delay) or DEFAULT_DELAY))
+    priority = math_max(1, math_min(4, tonumber(priority) or EventCoalescer.PRIORITY_MEDIUM))
 
     if not registeredEvents[eventName] then
         registeredEvents[eventName] = {
@@ -144,7 +162,7 @@ function EventCoalescer:CoalesceEvent(eventName, delay, callback, priority)
         end
     end
 
-    table.insert(data.callbacks, callback)
+    table_insert(data.callbacks, callback)
     EnsureEventStats(eventName)
     return true
 end
@@ -156,7 +174,7 @@ function EventCoalescer:UncoalesceEvent(eventName, callback)
     end
     for i = #data.callbacks, 1, -1 do
         if data.callbacks[i] == callback then
-            table.remove(data.callbacks, i)
+            table_remove(data.callbacks, i)
             return true
         end
     end
@@ -168,7 +186,7 @@ function EventCoalescer:SetEventDelay(eventName, delay)
     if not data then
         return false
     end
-    data.delay = math.max(0.01, math.min(MAX_DELAY, tonumber(delay) or DEFAULT_DELAY))
+    data.delay = math_max(0.01, math_min(MAX_DELAY, tonumber(delay) or DEFAULT_DELAY))
     return true
 end
 
@@ -180,7 +198,7 @@ end
 function EventCoalescer:GetCoalescedEvents()
     local list = {}
     for eventName in pairs(registeredEvents) do
-        table.insert(list, eventName)
+        table_insert(list, eventName)
     end
     return list
 end
@@ -188,8 +206,8 @@ end
 local function RecordBatch(eventName, size)
     EnsureEventStats(eventName)
     local b = stats.batchSizes[eventName]
-    b.min = math.min(b.min, size)
-    b.max = math.max(b.max, size)
+    b.min = math_min(b.min, size)
+    b.max = math_max(b.max, size)
     b.total = b.total + size
     b.count = b.count + 1
 end
@@ -232,6 +250,7 @@ function EventCoalescer:_DispatchRegistered(eventName)
     stats.totalDispatched = stats.totalDispatched + 1
     stats.perEvent[eventName].dispatched = stats.perEvent[eventName].dispatched + 1
     RecordBatch(eventName, data.coalesceCount)
+    ObserveDispatchedEvent(eventName)
     data.lastFire = now
     data.pendingArgs = nil
     data.coalesceCount = 0
@@ -281,7 +300,7 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
             self:_DispatchRegistered(eventName)
         elseif not registered.scheduled then
             registered.scheduled = true
-            C_Timer.After(math.max(0, registered.delay - since), function()
+            C_Timer.After(math_max(0, registered.delay - since), function()
                 self:_DispatchRegistered(eventName)
                 self:_SetProcessingActive(HasPendingWork())
             end)
@@ -292,7 +311,7 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
     local priority = EventCoalescer.PRIORITY_MEDIUM
     local args
     if type(priorityOrArg) == "number" then
-        priority = math.max(1, math.min(4, priorityOrArg))
+        priority = math_max(1, math_min(4, priorityOrArg))
         args = { ... }
     else
         args = { priorityOrArg, ... }
@@ -305,13 +324,14 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
         stats.totalDispatched = stats.totalDispatched + 1
         stats.perEvent[eventName].dispatched = stats.perEvent[eventName].dispatched + 1
         RecordBatch(eventName, 1)
+        ObserveDispatchedEvent(eventName)
         return true
     end
 
     if not queuedEvents[eventName] then
         queuedEvents[eventName] = { priority = priority, args = {}, count = 0 }
     end
-    table.insert(queuedEvents[eventName].args, args)
+    table_insert(queuedEvents[eventName].args, args)
     queuedEvents[eventName].count = queuedEvents[eventName].count + 1
     stats.totalCoalesced = stats.totalCoalesced + 1
     stats.perEvent[eventName].coalesced = stats.perEvent[eventName].coalesced + 1
@@ -333,6 +353,7 @@ function EventCoalescer:ProcessQueue()
         if now - lastTime >= interval then
             for i = 1, #data.args do
                 DispatchToBus(eventName, unpack(data.args[i]))
+                ObserveDispatchedEvent(eventName)
             end
             stats.totalDispatched = stats.totalDispatched + data.count
             stats.perEvent[eventName].dispatched = stats.perEvent[eventName].dispatched + data.count
@@ -360,18 +381,20 @@ end
 
 function EventCoalescer:SetCoalesceInterval(priority, interval)
     if priority >= 1 and priority <= 4 then
-        COALESCE_INTERVALS[priority] = math.max(0, tonumber(interval) or COALESCE_INTERVALS[priority])
+        COALESCE_INTERVALS[priority] = math_max(0, tonumber(interval) or COALESCE_INTERVALS[priority])
     end
 end
 
 function EventCoalescer:DispatchEvent(eventName, ...)
     DispatchToBus(eventName, ...)
+    ObserveDispatchedEvent(eventName)
 end
 
 function EventCoalescer:Flush()
     for eventName, data in pairs(queuedEvents) do
         for i = 1, #data.args do
             DispatchToBus(eventName, unpack(data.args[i]))
+            ObserveDispatchedEvent(eventName)
         end
         stats.totalDispatched = stats.totalDispatched + data.count
         stats.perEvent[eventName].dispatched = stats.perEvent[eventName].dispatched + data.count
