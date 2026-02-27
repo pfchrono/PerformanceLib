@@ -16,6 +16,8 @@ local MAX_EVENTS = 10000
 local timeline = {}
 local isRecording = false
 local startTime = 0
+local samplingRate = 1.0
+local bufferFullWarned = false
 local stats = {
     fpsMin = 0,
     fpsMax = 0,
@@ -37,6 +39,7 @@ function Profiler:StartProfiling()
     isRecording = true
     timeline = {}
     startTime = GetTime()
+    bufferFullWarned = false
     stats.events = 0
     stats.eventBreakdown = {}
     Output("|cFF00FF00Performance profiling started|r", 2)
@@ -52,7 +55,22 @@ end
 ---@param eventName string Event identifier
 ---@param duration number Duration in ms
 function Profiler:RecordEvent(eventName, duration)
-    if not isRecording or #timeline >= MAX_EVENTS then
+    if not isRecording then
+        return
+    end
+
+    if math.random() > samplingRate then
+        return
+    end
+
+    if #timeline >= MAX_EVENTS then
+        if not bufferFullWarned then
+            bufferFullWarned = true
+            Output(
+                "|cFFFF8800Profiler: buffer full (" .. MAX_EVENTS .. " events). Call :SetSamplingRate(0.1) to extend capture.|r",
+                1
+            )
+        end
         return
     end
     
@@ -70,6 +88,13 @@ function Profiler:RecordEvent(eventName, duration)
     end
     stats.eventBreakdown[eventName].count = stats.eventBreakdown[eventName].count + 1
     stats.eventBreakdown[eventName].totalTime = stats.eventBreakdown[eventName].totalTime + duration
+end
+
+---Set sampling rate for event capture
+---@param rate number 0.001 to 1.0
+function Profiler:SetSamplingRate(rate)
+    samplingRate = math.max(0.001, math.min(1.0, tonumber(rate) or 1.0))
+    bufferFullWarned = false
 end
 
 ---Analyze recorded profile data

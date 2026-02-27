@@ -336,6 +336,7 @@ local function PrintHelp()
     PerfLib:Output("  /perflib preset <Low|Medium|High|Ultra> - Set preset")
     PerfLib:Output("  /perflib profile start - Start profiler capture")
     PerfLib:Output("  /perflib profile stop - Stop profiler capture")
+    PerfLib:Output("  /perflib profile sample <0.001-1.0> - Set profiler sampling rate")
     PerfLib:Output("  /perflib profile analyze [scope] - Print diagnostic findings")
     PerfLib:Output("  /perflib analyze [scope] - Shortcut (scope: all|eventbus|frame|dirty|pool|profile)")
     PerfLib:Output("  /perflib help - Show this help")
@@ -585,16 +586,24 @@ SlashCmdList["PERFLIB"] = function(msg)
     elseif cmd == "profile" then
         local subcmd = msg:match("profile%s+(%w+)")
         local scope = msg:match("profile%s+%w+%s+(%w+)")
+        local sampleRate = msg:match("profile%s+sample%s+([%d%.]+)")
         if subcmd == "start" then
             PerfLib:StartProfiling()
             PerfLib:Output("|cFF00FF00Performance profiling started|r")
         elseif subcmd == "stop" then
             PerfLib:StopProfiling()
             PerfLib:Output("|cFF00FF00Performance profiling stopped|r")
+        elseif subcmd == "sample" then
+            if PerfLib.PerformanceProfiler and PerfLib.PerformanceProfiler.SetSamplingRate then
+                PerfLib.PerformanceProfiler:SetSamplingRate(sampleRate)
+                PerfLib:Output("|cFF00FF00Profiler sampling rate set to " .. tostring(sampleRate or "1.0") .. "|r")
+            else
+                PerfLib:Output("|cFFFF0000Profiler sampling configuration unavailable.|r")
+            end
         elseif subcmd == "analyze" then
             PerfLib:AnalyzePerformance(scope or "all")
         else
-            PerfLib:Output("|cFFFFFF00Usage: /perflib profile <start|stop|analyze> [all|eventbus|frame|dirty|pool|profile]|r")
+            PerfLib:Output("|cFFFFFF00Usage: /perflib profile <start|stop|sample|analyze> [value|all|eventbus|frame|dirty|pool|profile]|r")
         end
     elseif cmd == "analyze" then
         local scope = msg:match("analyze%s+(%w+)")

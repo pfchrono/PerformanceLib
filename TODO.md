@@ -137,11 +137,11 @@ confirm a warning appears and the Medium preset is applied. [COMPLETED]
 
 ---
 
-## Wave 2 — P1: High-Value WoW API Integration + UX
+## Wave 2 — P1: High-Value WoW API Integration + UX [COMPLETED]
 
 ---
 
-### TODO-05 · PerformanceProfiler — sampling rate + buffer-full warning
+### TODO-05 · PerformanceProfiler — sampling rate + buffer-full warning [COMPLETED]
 **File:** `Debug/PerformanceProfiler.lua`
 **Lines:** 15–17 (constants), 37–41 (`StartProfiling`), 54–55 (record guard)
 
@@ -182,10 +182,11 @@ end
 **References:**
 - Default `1.0` preserves exact existing behavior — safe to ship.
 - `SetSamplingRate(0.1)` extends a 10K-event buffer to ~10x longer sessions.
+[Test: `/perflib profile sample <rate>`, `/perflib profile start|stop|analyze`, and buffer-full one-time warning under high-event load.] [COMPLETED]
 
 ---
 
-### TODO-06 · Dashboard — GetNetStats() latency display
+### TODO-06 · Dashboard — GetNetStats() latency display [COMPLETED]
 **File:** `Config/Dashboard.lua`
 **Lines:** ~130 (inside `Dashboard:Update`, after the Memory line)
 
@@ -211,10 +212,11 @@ lines[#lines + 1] = ""
 - [GetNetStats API](https://wowpedia.fandom.com/wiki/API_GetNetStats) — updates ~30s,
   useful for trending not real-time.
 - Color thresholds: green < 50ms, yellow 50–150ms, red > 150ms (standard community values).
+[Test: `/perflib ui` shows Network section with Home/World latency and expected color behavior.] [COMPLETED]
 
 ---
 
-### TODO-07 · Dashboard — position persistence
+### TODO-07 · Dashboard — position persistence [COMPLETED]
 **File:** `Config/Dashboard.lua`
 **Lines:** 41 (hardcoded `SetPoint`), 47 (`OnDragStop`)
 
@@ -242,11 +244,11 @@ end)
 ```
 
 **Test:** Open dashboard, drag to new location, `/reload`, confirm it restores to the
-dragged position.
+dragged position. [COMPLETED]
 
 ---
 
-### TODO-08 · Dashboard — replace collectgarbage with gcinfo()
+### TODO-08 · Dashboard — replace collectgarbage with gcinfo() [COMPLETED]
 **File:** `Config/Dashboard.lua`
 **Line:** 129
 
@@ -264,6 +266,7 @@ dragged position.
 -- After:
 ("Memory: |cFF00FF00%.2f MB|r"):format(gcinfo() / 1024)
 ```
+[Test: Dashboard memory metric continues to render and update via `/perflib ui`.] [COMPLETED]
 
 ---
 
@@ -469,10 +472,10 @@ when processing runs. Do this after TODO-09 upvalue work is committed to same fi
 | TODO-02 | 1 | Architecture.lua | Dedup in EventBus:Register [COMPLETED] | None |
 | TODO-03 | 1 | DirtyPriorityOptimizer.lua | 5-min time-windowed frequency [COMPLETED] | Low |
 | TODO-04 | 1 | PerformanceLib.lua | Preset validation + fallback [COMPLETED] | None |
-| TODO-05 | 2 | PerformanceProfiler.lua | Sampling rate + buffer warning | None |
-| TODO-06 | 2 | Dashboard.lua | GetNetStats() latency section | None |
-| TODO-07 | 2 | Dashboard.lua | Position persistence | Negligible |
-| TODO-08 | 2 | Dashboard.lua | gcinfo() instead of collectgarbage | None |
+| TODO-05 | 2 | PerformanceProfiler.lua | Sampling rate + buffer warning [COMPLETED] | None |
+| TODO-06 | 2 | Dashboard.lua | GetNetStats() latency section [COMPLETED] | None |
+| TODO-07 | 2 | Dashboard.lua | Position persistence [COMPLETED] | Negligible |
+| TODO-08 | 2 | Dashboard.lua | gcinfo() instead of collectgarbage [COMPLETED] | None |
 | TODO-09 | 3 | EventCoalescer/DirtyFlag/FrameTime | Upvalue caching | None |
 | TODO-10 | 3 | FrameTimeBudget.lua | Use elapsed in TrackFrameTime | Low |
 | TODO-11 | 3 | MLOptimizer.lua + EventCoalescer | Transition-table learning | Low |

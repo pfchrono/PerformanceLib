@@ -16,6 +16,7 @@ local isVisible = false
 local updateInterval = 1.0
 local fpsSamples = {}
 local maxSamples = 5
+local GetNetStatsFn = GetNetStats
 
 local function GetSmoothedFPS()
     local fps = GetFramerate()
@@ -38,13 +39,35 @@ local function BuildFrame()
 
     local frame = CreateFrame("Frame", "PerformanceLibDashboard", UIParent, "BackdropTemplate")
     frame:SetSize(330, 430)
-    frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20, -220)
+    local db = PerformanceLIBDB or {}
+    if db.dashPos then
+        frame:SetPoint(
+            db.dashPos.point or "TOPRIGHT",
+            UIParent,
+            db.dashPos.relPoint or "TOPRIGHT",
+            tonumber(db.dashPos.x) or -20,
+            tonumber(db.dashPos.y) or -220
+        )
+    else
+        frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20, -220)
+    end
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local point, _, relPoint, x, y = self:GetPoint()
+        local dbRef = PerformanceLIBDB or {}
+        dbRef.dashPos = {
+            point = point,
+            relPoint = relPoint,
+            x = x,
+            y = y,
+        }
+        PerformanceLIBDB = dbRef
+    end)
     frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -126,7 +149,23 @@ function Dashboard:Update()
     lines[#lines + 1] = ("FPS: |cFF00FF00%.1f|r"):format(fps)
     lines[#lines + 1] = ("Frame Avg: |cFF00FF00%.2fms|r"):format(frameStats.avg or 0)
     lines[#lines + 1] = ("P95 / P99: |cFF00FF00%.2f / %.2f|r"):format(frameStats.P95 or 0, frameStats.P99 or 0)
-    lines[#lines + 1] = ("Memory: |cFF00FF00%.2f MB|r"):format((collectgarbage("count") or 0) / 1024)
+    lines[#lines + 1] = ("Memory: |cFF00FF00%.2f MB|r"):format((gcinfo() or 0) / 1024)
+    lines[#lines + 1] = ""
+
+    lines[#lines + 1] = "|cFFFFD700=== Network ===|r"
+    local lagHome, lagWorld = 0, 0
+    if type(GetNetStatsFn) == "function" then
+        local _, _, home, world = GetNetStatsFn()
+        lagHome = tonumber(home) or 0
+        lagWorld = tonumber(world) or 0
+    end
+    local lagColor = "|cFF00FF00"
+    if lagHome >= 150 then
+        lagColor = "|cFFFF0000"
+    elseif lagHome >= 50 then
+        lagColor = "|cFFFFFF00"
+    end
+    lines[#lines + 1] = ("Home: %s%dms|r  World: %dms"):format(lagColor, lagHome, lagWorld)
     lines[#lines + 1] = ""
 
     lines[#lines + 1] = "|cFFFFD700=== Event Coalescing ===|r"

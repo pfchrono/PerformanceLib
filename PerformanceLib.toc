@@ -1,6 +1,6 @@
 ## Interface: 120001
 ## Title: PerformanceLib - Performance System Library
-## Version: 1.0.1.22626
+## Version: 1.0.2.22626
 ## Author: UnhaltedUnitFrames Team
 ## Notes: High-performance library for addon developers providing event coalescing, frame time budgeting, frame pooling, and ML-based optimization systems
 ## SavedVariables: PerformanceLIBDB
