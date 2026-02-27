@@ -56,7 +56,7 @@ local stats = {
 -- State
 local isProcessing = false
 local lastProcessTime = GetTime()
-local lastTickTime = 0
+local accumulatedElapsed = 0
 local batchSize = 10
 
 local function QueueLength(priority)
@@ -110,8 +110,8 @@ function DirtyFlagManager:_SetProcessingActive(active)
     end
     self._processingActive = active
     if active then
-        self._frame:SetScript("OnUpdate", function()
-            DirtyFlagManager:ProcessDirty()
+        self._frame:SetScript("OnUpdate", function(_, elapsed)
+            DirtyFlagManager:ProcessDirty(false, elapsed)
         end)
     else
         self._frame:SetScript("OnUpdate", nil)
@@ -179,7 +179,12 @@ end
 
 ---Process all dirty frames
 ---@param forceFlush boolean Force process all frames immediately
-function DirtyFlagManager:ProcessDirty(forceFlush)
+---@param elapsed number|nil Elapsed time from OnUpdate
+function DirtyFlagManager:ProcessDirty(forceFlush, elapsed)
+    if type(elapsed) == "number" and elapsed > 0 then
+        accumulatedElapsed = accumulatedElapsed + elapsed
+    end
+
     if not self._enabled or isProcessing then
         if isProcessing then
             stats.processingBlocks = stats.processingBlocks + 1
@@ -191,8 +196,7 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
     end
     
     isProcessing = true
-    
-    local now = GetTime()
+
     local frameTimeBudget = PerformanceLib.FrameTimeBudget
     local budgetStats = frameTimeBudget and frameTimeBudget.GetStatistics and frameTimeBudget:GetStatistics() or nil
     local adaptiveBatch = batchSize
@@ -217,10 +221,13 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
         end
     end
 
-    if not forceFlush and minTickInterval > 0 and (now - lastTickTime) < minTickInterval then
+    if not forceFlush and minTickInterval > 0 and accumulatedElapsed < minTickInterval then
         isProcessing = false
         return
     end
+    accumulatedElapsed = 0
+
+    local now = GetTime()
     
     -- Process by priority (high to low)
     for priority = 4, 1, -1 do
@@ -303,7 +310,6 @@ function DirtyFlagManager:ProcessDirty(forceFlush)
         lastProcessTime = now
     end
     
-    lastTickTime = now
     isProcessing = false
     if not HasPendingDirty() then
         self:_SetProcessingActive(false)

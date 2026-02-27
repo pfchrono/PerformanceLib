@@ -86,11 +86,11 @@ end
 -- =========================================================================
 
 function addon:RegisterEventHandlers()
-    -- Register for raw events, queue them for coalescing
+    -- Register only for relevant units (player/target) to avoid raid-wide UNIT_* spam.
     local frame = CreateFrame("Frame")
-    frame:RegisterEvent("UNIT_HEALTH")
-    frame:RegisterEvent("UNIT_MAXHEALTH")
-    frame:RegisterEvent("UNIT_NAME_UPDATE")
+    frame:RegisterUnitEvent("UNIT_HEALTH", "player", "target")
+    frame:RegisterUnitEvent("UNIT_MAXHEALTH", "player", "target")
+    frame:RegisterUnitEvent("UNIT_NAME_UPDATE", "player", "target")
     
     frame:SetScript("OnEvent", function(self, event, unit, ...)
         addon:OnEvent(event, unit, ...)

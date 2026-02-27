@@ -270,7 +270,7 @@ dragged position. [COMPLETED]
 
 ---
 
-## Wave 3 — P2: Architecture Hardening
+## Wave 3 — P2: Architecture Hardening [COMPLETED]
 
 ---
 
@@ -385,7 +385,7 @@ interpretable, and produces useful `PredictNextEvent` results.
 
 ---
 
-### TODO-12 · Example docs — RegisterUnitEvent pattern
+### TODO-12 · Example docs — RegisterUnitEvent pattern [COMPLETED]
 **File:** `Documentation/EXAMPLE_ADDON.lua`
 
 **Problem:** Example registers `frame:RegisterEvent("UNIT_HEALTH")` which fires for
@@ -411,13 +411,15 @@ frame:RegisterUnitEvent("UNIT_NAME_UPDATE", "player", "target")
 - [WeakAuras GitHub issue #1185](https://github.com/WeakAuras/WeakAuras2/issues/1185) —
   documents the RegisterUnitEvent change in WA 2.12.4 and the performance rationale.
 
----
-
-## Wave 4 — P3: Polish
+[Test Phase: trigger frequent `UNIT_HEALTH` / `UNIT_MAXHEALTH` changes (player + target) and confirm example handler still updates correctly while event volume remains scoped to registered units.] [COMPLETED]
 
 ---
 
-### TODO-13 · Dashboard — color-coded FPS + P95, budget defers stat
+## Wave 4 — P3: Polish [COMPLETED]
+
+---
+
+### TODO-13 · Dashboard — color-coded FPS + P95, budget defers stat [COMPLETED]
 **File:** `Config/Dashboard.lua`
 **Lines:** ~126–128 (FPS/P95 lines) and ~134–137 (Event Coalescing section)
 
@@ -437,9 +439,11 @@ lines[#lines + 1] = ("Defers: |cFFAAAAAA%d|r  Emergency: |cFFFF8800%d|r"):format
     eventStats.budgetDefers or 0, eventStats.emergencyFlushes or 0)
 ```
 
+[Test Phase: open `/perflib ui` and confirm FPS/P95 colors change at thresholds (55/30 FPS, 16.67/25ms P95) and that Defers/Emergency counters render in Event Coalescing.] [COMPLETED]
+
 ---
 
-### TODO-14 · DirtyFlagManager — elapsed-based tick throttle
+### TODO-14 · DirtyFlagManager — elapsed-based tick throttle [COMPLETED]
 **File:** `Core/DirtyFlagManager.lua`
 
 **Problem:** `ProcessDirty` calls `GetTime()` on every OnUpdate to check interval.
@@ -449,6 +453,34 @@ avoids the call entirely.
 **Design:** Thread `elapsed` from OnUpdate. Accumulate in a local `accumulatedElapsed`.
 Skip `ProcessDirty` call if `accumulatedElapsed < minTickInterval`; reset accumulator
 when processing runs. Do this after TODO-09 upvalue work is committed to same file.
+
+[Test Phase: run `/perflib stats` + `/perflib analyze all` under sustained combat/event load and confirm dirty batches/process counts remain healthy with no missed updates or visible lag while min-tick throttling is active.] [COMPLETED]
+
+---
+
+## Wave 4 Findings & Improvements
+
+### Findings captured during implementation/testing
+- Dashboard readability gaps: P95 was colorized but P99 remained plain, making threshold state ambiguous.
+- Dirty update scheduling had avoidable per-tick `GetTime()` interval checks in `DirtyFlagManager`.
+- Targeted SUF UI validation exposed startup edge cases where target health text could be delayed until additional unit events.
+
+### Improvements implemented
+- Dashboard telemetry polish:
+  - FPS color thresholds implemented (`>=55` green, `>=30` yellow, else red).
+  - P95 and P99 both colorized with latency-oriented thresholds (`<16.67ms` green, `<25ms` yellow, else red).
+  - Event Coalescing section expanded with `Defers` and `Emergency` counters for immediate pressure visibility.
+- Dirty scheduler efficiency:
+  - `DirtyFlagManager` now uses elapsed accumulation from `OnUpdate` for min-tick throttling.
+  - Throttle gate no longer requires a per-tick wall-clock delta check.
+- Documentation/API guidance hardening:
+  - Example addon updated to `RegisterUnitEvent` for unit-scoped `UNIT_*` traffic.
+  - Wave tests formalized and executed per TODO item.
+
+### Validation outcomes
+- `/perflib ui` confirmed new dashboard colors/counters render correctly.
+- `/perflib stats` and `/perflib analyze all` showed stable frame metrics and healthy dirty processing under sustained event load.
+- No regressions observed in core coalescing/dirty pipelines during Wave 4 test runs.
 
 ---
 
@@ -484,9 +516,9 @@ when processing runs. Do this after TODO-09 upvalue work is committed to same fi
 | TODO-09 | 3 | EventCoalescer/DirtyFlag/FrameTime | Upvalue caching [COMPLETED] | None |
 | TODO-10 | 3 | FrameTimeBudget.lua | Use elapsed in TrackFrameTime [COMPLETED] | Low |
 | TODO-11 | 3 | MLOptimizer.lua + EventCoalescer | Transition-table learning [COMPLETED] | Low |
-| TODO-12 | 3 | EXAMPLE_ADDON.lua | RegisterUnitEvent docs | None |
-| TODO-13 | 4 | Dashboard.lua | Color-coded FPS/P95 + defers stat | None |
-| TODO-14 | 4 | DirtyFlagManager.lua | elapsed-based tick throttle | Low |
+| TODO-12 | 3 | EXAMPLE_ADDON.lua | RegisterUnitEvent docs [COMPLETED] | None |
+| TODO-13 | 4 | Dashboard.lua | Color-coded FPS/P95 + defers stat [COMPLETED] | None |
+| TODO-14 | 4 | DirtyFlagManager.lua | elapsed-based tick throttle [COMPLETED] | Low |
 
 
 

@@ -17,12 +17,28 @@ A comprehensive, production-ready performance library for World of Warcraft addo
 
 ### ML & Optimization Systems
 - **DirtyPriorityOptimizer**: ML-based priority learning from gameplay patterns (5-minute windows)
-- **MLOptimizer**: Neural network-based event prediction and adaptive coalescing
+- **MLOptimizer**: Transition-table (Markov-style) event learning with observed dispatch training
 
 ### Debug & Monitoring
 - **DebugOutput**: Non-intrusive 3-tier debug message routing
 - **PerformanceProfiler**: Real-time timeline recording with bottleneck detection
 - **DebugPanel**: Built-in UI for monitoring all metrics
+
+## Recent Enhancements (Waves 3-4)
+
+- **Hot-path upvalue caching** in core per-frame systems (`EventCoalescer`, `DirtyFlagManager`, `FrameTimeBudget`)
+- **FrameTimeBudget elapsed tracking** now uses engine-provided `elapsed` directly
+- **MLOptimizer live learning** now records observed event transitions and computes rolling prediction accuracy
+- **Example addon unit-scoped registration** now uses `RegisterUnitEvent` for `UNIT_*` examples
+- **Dashboard telemetry polish**:
+  - color-coded `FPS`, `P95`, and `P99`
+  - added `Defers` and `Emergency` coalescer counters
+- **DirtyFlagManager tick throttle optimization** using elapsed accumulation instead of per-tick wall-clock interval checks
+
+Validation highlights from test runs:
+- Stable frame budget and percentile behavior under sustained combat/event load
+- No dropped/deferred frame-budget regressions observed in Wave 4 validation
+- Coalescing/dirty pipelines remained stable while exposing clearer dashboard diagnostics
 
 ## Quick Start
 
@@ -153,9 +169,15 @@ PerfLib:ReleaseFrame(indicator)
 
 ```
 /perflib ui          -- Toggle dashboard
+/perflib ui show|hide -- Explicitly show/hide dashboard
+/perflib dash        -- Alias for /perflib ui
+/perflib stats       -- Print current performance stats
 /perflib version     -- Show version
 /perflib preset LOW  -- Change preset (Low/Medium/High/Ultra)
-/perflib profile start|stop  -- Toggle profiling
+/perflib profile start|stop   -- Toggle profiling
+/perflib profile sample <0.001-1.0> -- Set profiler sampling rate
+/perflib profile analyze [scope] -- Analyze profile diagnostics
+/perflib analyze [scope] -- Shortcut (all|eventbus|frame|dirty|pool|profile)
 /perflib help        -- Show help
 ```
 

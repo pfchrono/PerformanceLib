@@ -146,9 +146,14 @@ function Dashboard:Update()
     local lines = {}
     lines[#lines + 1] = "|cFFFFD700=== Performance ===|r"
     lines[#lines + 1] = ("Preset: |cFF00B0F7%s|r"):format(GetActivePreset())
-    lines[#lines + 1] = ("FPS: |cFF00FF00%.1f|r"):format(fps)
+    local fpsColor = fps >= 55 and "|cFF00FF00" or (fps >= 30 and "|cFFFFFF00" or "|cFFFF0000")
+    lines[#lines + 1] = ("FPS: %s%.1f|r"):format(fpsColor, fps)
     lines[#lines + 1] = ("Frame Avg: |cFF00FF00%.2fms|r"):format(frameStats.avg or 0)
-    lines[#lines + 1] = ("P95 / P99: |cFF00FF00%.2f / %.2f|r"):format(frameStats.P95 or 0, frameStats.P99 or 0)
+    local p95 = frameStats.P95 or 0
+    local p95Color = p95 < 16.67 and "|cFF00FF00" or (p95 < 25 and "|cFFFFFF00" or "|cFFFF0000")
+    local p99 = frameStats.P99 or 0
+    local p99Color = p99 < 16.67 and "|cFF00FF00" or (p99 < 25 and "|cFFFFFF00" or "|cFFFF0000")
+    lines[#lines + 1] = ("P95/P99: %s%.2f|r / %s%.2f|rms"):format(p95Color, p95, p99Color, p99)
     lines[#lines + 1] = ("Memory: |cFF00FF00%.2f MB|r"):format((gcinfo() or 0) / 1024)
     lines[#lines + 1] = ""
 
@@ -173,6 +178,10 @@ function Dashboard:Update()
     lines[#lines + 1] = ("Dispatched: |cFFFFFF00%s|r"):format(FormatNumber(eventStats.totalDispatched or 0))
     lines[#lines + 1] = ("Queued: |cFFAAAAAA%d|r"):format(eventStats.queuedEvents or 0)
     lines[#lines + 1] = ("Rejected: |cFFFF8800%s|r"):format(FormatNumber(eventStats.totalRejected or 0))
+    lines[#lines + 1] = ("Defers: |cFFAAAAAA%d|r  Emergency: |cFFFF8800%d|r"):format(
+        eventStats.budgetDefers or 0,
+        eventStats.emergencyFlushes or 0
+    )
     lines[#lines + 1] = ("Savings: |cFF00FF00%.1f%%|r"):format(eventStats.savingsPercent or 0)
     lines[#lines + 1] = ""
 
