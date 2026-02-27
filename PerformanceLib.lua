@@ -329,6 +329,7 @@ local function PrintHelp()
     PerfLib:Output("  /perflib profile stop - Stop profiler capture")
     PerfLib:Output("  /perflib profile analyze [scope] - Print diagnostic findings")
     PerfLib:Output("  /perflib analyze [scope] - Shortcut (scope: all|eventbus|frame|dirty|pool|profile)")
+    PerfLib:Output("  /perflib test eventbus - Run EventBus error-isolation self-test")
     PerfLib:Output("  /perflib help - Show this help")
 end
 
@@ -353,6 +354,61 @@ local function PrintStats()
     if (poolStats.totalCreated or 0) == 0 and (poolStats.totalReused or 0) == 0 then
         PerfLib:Output("  Note: pool stats stay at 0 until an addon uses PerformanceLib:AcquireFrame()/ReleaseFrame().")
     end
+end
+
+local function RunEventBusIsolationTest()
+    local bus = PerfLib.Architecture and PerfLib.Architecture.EventBus
+    if not bus or not bus.Register or not bus.Unregister or not bus.Dispatch then
+        PerfLib:Output("|cFFFF0000EventBus test failed: EventBus unavailable.|r")
+        return false
+    end
+
+    local eventName = "PERFLIB_TEST_EVENTBUS_ISOLATION"
+    local firstHandlerRan = false
+    local secondHandlerRan = false
+    local errorLogged = false
+
+    local originalDebugOutput = PerfLib.DebugOutput
+    PerfLib.DebugOutput = {
+        Output = function(_, system, message)
+            if system == "EventBus" and type(message) == "string" and message:find("EventBus error [" .. eventName .. "]", 1, true) then
+                errorLogged = true
+            end
+        end
+    }
+
+    local function failingHandler()
+        firstHandlerRan = true
+        error("test")
+    end
+
+    local function survivingHandler()
+        secondHandlerRan = true
+    end
+
+    bus:Register(eventName, failingHandler)
+    bus:Register(eventName, survivingHandler)
+
+    local dispatchOk, dispatchErr = pcall(bus.Dispatch, bus, eventName)
+
+    bus:Unregister(eventName, failingHandler)
+    bus:Unregister(eventName, survivingHandler)
+    PerfLib.DebugOutput = originalDebugOutput
+
+    local passed = dispatchOk and firstHandlerRan and secondHandlerRan and errorLogged
+    if passed then
+        PerfLib:Output("|cFF00FF00EventBus test passed: handler errors were isolated, dispatch continued, and error output was captured.|r")
+    else
+        PerfLib:Output(("|cFFFF0000EventBus test failed: dispatchOk=%s first=%s second=%s errorLogged=%s err=%s|r"):format(
+            tostring(dispatchOk),
+            tostring(firstHandlerRan),
+            tostring(secondHandlerRan),
+            tostring(errorLogged),
+            tostring(dispatchErr)
+        ))
+    end
+
+    return passed
 end
 
 local function BuildTopEventRows(perEventStats, limit)
@@ -590,6 +646,12 @@ SlashCmdList["PERFLIB"] = function(msg)
     elseif cmd == "analyze" then
         local scope = msg:match("analyze%s+(%w+)")
         PerfLib:AnalyzePerformance(scope or "all")
+    elseif cmd == "test" then
+        if arg == "eventbus" then
+            RunEventBusIsolationTest()
+        else
+            PerfLib:Output("|cFFFFFF00Usage: /perflib test eventbus|r")
+        end
     elseif cmd == "help" then
         PrintHelp()
     else

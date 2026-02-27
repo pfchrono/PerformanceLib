@@ -61,12 +61,23 @@ end
 ---@param ... any Arguments to pass to handlers
 function EventBus:Dispatch(event, ...)
     if not self._handlers[event] then return end
-    
+
     for _, entry in ipairs(self._handlers[event]) do
+        local ok, err
         if entry.context then
-            entry.handler(entry.context, ...)
+            ok, err = pcall(entry.handler, entry.context, ...)
         else
-            entry.handler(...)
+            ok, err = pcall(entry.handler, ...)
+        end
+
+        if not ok then
+            local ctx = entry.context and tostring(entry.context) or "nil"
+            local msg = "EventBus error [" .. tostring(event) .. "] ctx=" .. ctx .. ": " .. tostring(err)
+            if PerformanceLib and PerformanceLib.DebugOutput then
+                PerformanceLib.DebugOutput:Output("EventBus", msg, 1)
+            else
+                print(msg)
+            end
         end
     end
 end
@@ -244,3 +255,4 @@ end
 -- =========================================================================
 
 return Arch
+
