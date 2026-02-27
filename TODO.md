@@ -43,7 +43,7 @@ end
 ```
 
 **Test:** Register a handler we can trigger that calls `error("test")`, dispatch that event, confirm 
-subsequent handlers still fire and the error message appears in chat/debug panel.
+subsequent handlers still fire and the error message appears in chat/debug panel. [COMPLETED]
 
 ---
 
@@ -480,6 +480,7 @@ when processing runs. Do this after TODO-09 upvalue work is committed to same fi
 | TODO-12 | 3 | EXAMPLE_ADDON.lua | RegisterUnitEvent docs | None |
 | TODO-13 | 4 | Dashboard.lua | Color-coded FPS/P95 + defers stat | None |
 | TODO-14 | 4 | DirtyFlagManager.lua | elapsed-based tick throttle | Low |
+
 
 
 
