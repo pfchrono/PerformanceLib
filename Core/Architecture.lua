@@ -36,7 +36,14 @@ function EventBus:Register(event, handler, context)
     if not self._handlers[event] then
         self._handlers[event] = {}
     end
-    
+
+    for i = 1, #self._handlers[event] do
+        local entry = self._handlers[event][i]
+        if entry.handler == handler and entry.context == context then
+            return
+        end
+    end
+
     table.insert(self._handlers[event], {
         handler = handler,
         context = context

@@ -58,6 +58,7 @@ local subsystems = {
     Dashboard = PerfLib.Dashboard,
     PerformanceProfiler = PerfLib.PerformanceProfiler,
 }
+local VALID_PRESETS = { Low = true, Medium = true, High = true, Ultra = true }
 
 -- =========================================================================
 -- LIBRARY API
@@ -122,6 +123,14 @@ function PerfLib:SetPreset(preset)
     if not preset or preset == "" then
         preset = "Medium"
     end
+
+    if not VALID_PRESETS[preset] then
+        PerfLib:Output(
+            "|cFFFF8800PerformanceLib: Unknown preset '" .. tostring(preset) .. "', defaulting to Medium.|r"
+        )
+        preset = "Medium"
+    end
+
     self.db.presets = preset
 
     local settings = {
@@ -329,7 +338,9 @@ local function PrintHelp()
     PerfLib:Output("  /perflib profile stop - Stop profiler capture")
     PerfLib:Output("  /perflib profile analyze [scope] - Print diagnostic findings")
     PerfLib:Output("  /perflib analyze [scope] - Shortcut (scope: all|eventbus|frame|dirty|pool|profile)")
-    PerfLib:Output("  /perflib test eventbus - Run EventBus error-isolation self-test")
+    PerfLib:Output("  /perflib test eventbus - Run EventBus self-tests (isolation + dedupe)")
+    PerfLib:Output("  /perflib test dirtypriority - Run DirtyPriorityOptimizer frequency-window test")
+    PerfLib:Output("  /perflib test preset - Run preset-validation fallback test")
     PerfLib:Output("  /perflib help - Show this help")
 end
 
@@ -405,6 +416,230 @@ local function RunEventBusIsolationTest()
             tostring(secondHandlerRan),
             tostring(errorLogged),
             tostring(dispatchErr)
+        ))
+    end
+
+    return passed
+end
+
+local function RunEventBusDuplicateRegistrationTest()
+    local bus = PerfLib.Architecture and PerfLib.Architecture.EventBus
+    if not bus or not bus.Register or not bus.Unregister or not bus.Dispatch then
+        PerfLib:Output("|cFFFF0000EventBus dedupe test failed: EventBus unavailable.|r")
+        return false
+    end
+
+    local eventName = "PERFLIB_TEST_EVENTBUS_DEDUPE"
+    local callCount = 0
+
+    local function handler()
+        callCount = callCount + 1
+    end
+
+    bus:Register(eventName, handler)
+    bus:Register(eventName, handler)
+
+    local dispatchOk, dispatchErr = pcall(bus.Dispatch, bus, eventName)
+
+    bus:Unregister(eventName, handler)
+
+    local passed = dispatchOk and callCount == 1
+    if passed then
+        PerfLib:Output("|cFF00FF00EventBus dedupe test passed: duplicate registration was ignored and handler fired once.|r")
+    else
+        PerfLib:Output(("|cFFFF0000EventBus dedupe test failed: dispatchOk=%s callCount=%s err=%s|r"):format(
+            tostring(dispatchOk),
+            tostring(callCount),
+            tostring(dispatchErr)
+        ))
+    end
+
+    return passed
+end
+
+local dirtyPriorityTestFrame
+local dirtyPriorityTestRunning = false
+
+local function RunDirtyPriorityOptimizerWindowTest()
+    local optimizer = PerfLib.DirtyPriorityOptimizer
+    if not optimizer or not optimizer.LearnPriority or not optimizer.GetRecommendations then
+        PerfLib:Output("|cFFFF0000DirtyPriority test failed: optimizer unavailable.|r")
+        return false
+    end
+
+    if dirtyPriorityTestRunning then
+        PerfLib:Output("|cFFFFFF00DirtyPriority test already running; wait for completion.|r")
+        return false
+    end
+
+    dirtyPriorityTestRunning = true
+
+    if optimizer.Reset then
+        optimizer:Reset()
+    end
+
+    local totalFrames = 420
+    local ticks = 0
+    local hotFrame = {}
+    local warmFrame = {}
+    local coldFrame = {}
+
+    if not dirtyPriorityTestFrame then
+        dirtyPriorityTestFrame = CreateFrame("Frame")
+    end
+
+    dirtyPriorityTestFrame:SetScript("OnUpdate", function(self)
+        ticks = ticks + 1
+
+        optimizer:LearnPriority(hotFrame, 2)            -- every frame
+        if ticks % 4 == 0 then
+            optimizer:LearnPriority(warmFrame, 2)       -- medium frequency
+        end
+        if ticks % 30 == 0 then
+            optimizer:LearnPriority(coldFrame, 2)       -- low frequency
+        end
+
+        if ticks < totalFrames then
+            return
+        end
+
+        self:SetScript("OnUpdate", nil)
+        dirtyPriorityTestRunning = false
+
+        local recs = optimizer:GetRecommendations() or {}
+        local hotRec, warmRec, coldRec
+        local unique = {}
+        for i = 1, #recs do
+            local row = recs[i]
+            unique[row.recommendation] = true
+            if row.frame == hotFrame then
+                hotRec = row.recommendation
+            elseif row.frame == warmFrame then
+                warmRec = row.recommendation
+            elseif row.frame == coldFrame then
+                coldRec = row.recommendation
+            end
+        end
+
+        local uniqueCount = 0
+        for _ in pairs(unique) do
+            uniqueCount = uniqueCount + 1
+        end
+
+        local ordered = hotRec and warmRec and coldRec and (hotRec >= warmRec and warmRec >= coldRec)
+        local varied = uniqueCount > 1
+        local passed = ordered and varied
+
+        if passed then
+            PerfLib:Output(("|cFF00FF00DirtyPriority test passed: priorities varied after %d frames (hot=%s warm=%s cold=%s).|r"):format(
+                totalFrames, tostring(hotRec), tostring(warmRec), tostring(coldRec)
+            ))
+        else
+            PerfLib:Output(("|cFFFF0000DirtyPriority test failed: expected hot>=warm>=cold with variation after %d frames; got hot=%s warm=%s cold=%s unique=%d.|r"):format(
+                totalFrames, tostring(hotRec), tostring(warmRec), tostring(coldRec), uniqueCount
+            ))
+        end
+    end)
+
+    PerfLib:Output("|cFFFFFF00DirtyPriority test started: collecting ~420 frames of activity...|r")
+    return true
+end
+
+local function RunPresetValidationFallbackTest()
+    local savedSink = PerfLib._outputSink
+    local savedSinkContext = PerfLib._outputContext
+    local warningSeen = false
+
+    local observed = {
+        coalesce2 = nil,
+        coalesce3 = nil,
+        coalesce4 = nil,
+        batchSize = nil,
+        budgetTarget = nil,
+    }
+
+    local ec = subsystems.EventCoalescer
+    local dirty = subsystems.DirtyFlagManager
+    local frameBudget = subsystems.FrameTimeBudget
+
+    local oldEC = ec and ec.SetCoalesceInterval or nil
+    local oldDirty = dirty and dirty.SetBatchSize or nil
+    local oldBudget = frameBudget and frameBudget.SetTargetFrameTime or nil
+    local originalPreset = PerfLib.db and PerfLib.db.presets or "Medium"
+
+    if ec then
+        ec.SetCoalesceInterval = function(_, priority, interval)
+            if priority == 2 then
+                observed.coalesce2 = interval
+            elseif priority == 3 then
+                observed.coalesce3 = interval
+            elseif priority == 4 then
+                observed.coalesce4 = interval
+            end
+        end
+    end
+
+    if dirty then
+        dirty.SetBatchSize = function(_, size)
+            observed.batchSize = size
+        end
+    end
+
+    if frameBudget then
+        frameBudget.SetTargetFrameTime = function(_, value)
+            observed.budgetTarget = value
+        end
+    end
+
+    PerfLib:SetOutputSink(function(_, message)
+        if type(message) == "string" and message:find("Unknown preset", 1, true) then
+            warningSeen = true
+        end
+    end)
+
+    PerfLib:SetPreset("invalid")
+
+    local function approxEqual(a, b)
+        return type(a) == "number" and type(b) == "number" and math.abs(a - b) < 0.0001
+    end
+
+    local mediumApplied =
+        approxEqual(observed.coalesce2, 0.015) and
+        approxEqual(observed.coalesce3, 0.030) and
+        approxEqual(observed.coalesce4, 0.045) and
+        observed.batchSize == 10 and
+        approxEqual(observed.budgetTarget, 16.67)
+
+    local fallbackPreset = PerfLib.db.presets
+    local passed = warningSeen and fallbackPreset == "Medium" and mediumApplied
+
+    if ec then
+        ec.SetCoalesceInterval = oldEC
+    end
+    if dirty then
+        dirty.SetBatchSize = oldDirty
+    end
+    if frameBudget then
+        frameBudget.SetTargetFrameTime = oldBudget
+    end
+
+    PerfLib:SetOutputSink(savedSink, savedSinkContext)
+
+    local restorePreset = VALID_PRESETS[originalPreset] and originalPreset or "Medium"
+    PerfLib:SetPreset(restorePreset)
+
+    if passed then
+        PerfLib:Output("|cFF00FF00Preset test passed: invalid preset emitted warning and fell back to Medium settings.|r")
+    else
+        PerfLib:Output(("|cFFFF0000Preset test failed: warning=%s preset=%s mediumApplied=%s c2=%s c3=%s c4=%s batch=%s budget=%s|r"):format(
+            tostring(warningSeen),
+            tostring(fallbackPreset),
+            tostring(mediumApplied),
+            tostring(observed.coalesce2),
+            tostring(observed.coalesce3),
+            tostring(observed.coalesce4),
+            tostring(observed.batchSize),
+            tostring(observed.budgetTarget)
         ))
     end
 
@@ -648,9 +883,19 @@ SlashCmdList["PERFLIB"] = function(msg)
         PerfLib:AnalyzePerformance(scope or "all")
     elseif cmd == "test" then
         if arg == "eventbus" then
-            RunEventBusIsolationTest()
+            local isolationPassed = RunEventBusIsolationTest()
+            local dedupePassed = RunEventBusDuplicateRegistrationTest()
+            if isolationPassed and dedupePassed then
+                PerfLib:Output("|cFF00FF00EventBus self-tests passed.|r")
+            else
+                PerfLib:Output("|cFFFF0000EventBus self-tests failed. See messages above.|r")
+            end
+        elseif arg == "dirtypriority" then
+            RunDirtyPriorityOptimizerWindowTest()
+        elseif arg == "preset" then
+            RunPresetValidationFallbackTest()
         else
-            PerfLib:Output("|cFFFFFF00Usage: /perflib test eventbus|r")
+            PerfLib:Output("|cFFFFFF00Usage: /perflib test <eventbus|dirtypriority|preset>|r")
         end
     elseif cmd == "help" then
         PrintHelp()

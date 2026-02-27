@@ -7,7 +7,7 @@
 
 ---
 
-## Wave 1 — P0: Critical Correctness Bugs
+## Wave 1 — P0: Critical Correctness Bugs [COMPLETED]
 
 These are logic errors or unfulfilled design contracts. Tackle first.
 
@@ -47,7 +47,7 @@ subsequent handlers still fire and the error message appears in chat/debug panel
 
 ---
 
-### TODO-02 · EventBus duplicate registration guard
+### TODO-02 · EventBus duplicate registration guard [COMPLETED]
 **File:** `Core/Architecture.lua`
 **Lines:** 40–43 (`EventBus:Register`, before the `table.insert`)
 
@@ -66,11 +66,10 @@ table.insert(self._handlers[event], { handler = handler, context = context })
 ```
 
 **Test:** Call `EventBus:Register` twice with identical args; dispatch the event once;
-confirm handler fires exactly once.
-
+confirm handler fires exactly once. [COMPLETED]
 ---
 
-### TODO-03 · DirtyPriorityOptimizer — add time-windowed frequency counter
+### TODO-03 · DirtyPriorityOptimizer — add time-windowed frequency counter [COMPLETED]
 **File:** `ML/DirtyPriorityOptimizer.lua`
 **Lines:** 22–54 (`Optimizer:LearnPriority`)
 
@@ -107,11 +106,11 @@ local combatRatio = metrics.windowCombat / math.max(1, metrics.windowUpdates)
 ```
 
 **Test:** Let the optimizer run for several hundred frames, then call `GetRecommendations`.
-Priorities should vary with actual update frequency rather than always hitting max.
+Priorities should vary with actual update frequency rather than always hitting max. [COMPLETED]
 
 ---
 
-### TODO-04 · Preset validation on boot
+### TODO-04 · Preset validation on boot [COMPLETED]
 **File:** `PerformanceLib.lua`
 **Lines:** 121–163 (`PerfLib:SetPreset`), boot call at ~line 614
 
@@ -134,7 +133,7 @@ end
 ```
 
 **Test:** Corrupt `PerformanceLIBDB.presets = "invalid"` in SavedVariables, reload,
-confirm a warning appears and the Medium preset is applied.
+confirm a warning appears and the Medium preset is applied. [COMPLETED]
 
 ---
 
@@ -467,9 +466,9 @@ when processing runs. Do this after TODO-09 upvalue work is committed to same fi
 | ID | Wave | File(s) | Description | Risk |
 |----|------|---------|-------------|------|
 | TODO-01 | 1 | Architecture.lua | pcall in EventBus:Dispatch [COMPLETED] | None |
-| TODO-02 | 1 | Architecture.lua | Dedup in EventBus:Register | None |
-| TODO-03 | 1 | DirtyPriorityOptimizer.lua | 5-min time-windowed frequency | Low |
-| TODO-04 | 1 | PerformanceLib.lua | Preset validation + fallback | None |
+| TODO-02 | 1 | Architecture.lua | Dedup in EventBus:Register [COMPLETED] | None |
+| TODO-03 | 1 | DirtyPriorityOptimizer.lua | 5-min time-windowed frequency [COMPLETED] | Low |
+| TODO-04 | 1 | PerformanceLib.lua | Preset validation + fallback [COMPLETED] | None |
 | TODO-05 | 2 | PerformanceProfiler.lua | Sampling rate + buffer warning | None |
 | TODO-06 | 2 | Dashboard.lua | GetNetStats() latency section | None |
 | TODO-07 | 2 | Dashboard.lua | Position persistence | Negligible |
