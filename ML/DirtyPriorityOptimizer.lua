@@ -16,13 +16,6 @@ local frameMetrics = {}
 local stats = { learned = 0, adjusted = 0 }
 local WINDOW_SECONDS = 300
 
----Reset internal optimizer state (primarily for deterministic tests)
-function Optimizer:Reset()
-    frameMetrics = {}
-    stats.learned = 0
-    stats.adjusted = 0
-end
-
 ---Learn priority from frame update frequency
 ---@param frame table Frame to analyze
 ---@param priority integer Current priority

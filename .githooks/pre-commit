@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${PERFLIB_SKIP_VERSION_BUMP:-0}" == "1" ]]; then
+	exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Nothing to do if no staged changes (excluding TOC itself).
+if git diff --cached --quiet -- . ":(exclude)PerformanceLib.toc"; then
+	exit 0
+fi
+
+SCRIPT_PATH="$REPO_ROOT/scripts/bump-version.ps1"
+if [[ ! -f "$SCRIPT_PATH" ]]; then
+	exit 0
+fi
+
+MODE="${PERFLIB_VERSION_BUMP:-auto}"
+if [[ "$MODE" != "major" && "$MODE" != "small" && "$MODE" != "auto" ]]; then
+	MODE="auto"
+fi
+
+if command -v pwsh >/dev/null 2>&1; then
+	pwsh -NoProfile -ExecutionPolicy Bypass -File "$SCRIPT_PATH" -ChangeType "$MODE" -UseStagedChanges
+elif command -v powershell >/dev/null 2>&1; then
+	powershell -NoProfile -ExecutionPolicy Bypass -File "$SCRIPT_PATH" -ChangeType "$MODE" -UseStagedChanges
+else
+	echo "Skipping PerformanceLib version bump: PowerShell not found."
+	exit 0
+fi
+
+git add PerformanceLib.toc
