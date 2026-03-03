@@ -4,6 +4,7 @@
 ## Author: UnhaltedUnitFrames Team
 ## Notes: High-performance library for addon developers providing event coalescing, frame time budgeting, frame pooling, and ML-based optimization systems
 ## SavedVariables: PerformanceLIBDB
+## LoadOnDemand: 1
 ## OptionalDeps: Ace3, LibSharedMedia
 
 # Core Systems
