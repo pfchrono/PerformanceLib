@@ -10,7 +10,7 @@
 --  - ML-based optimization (learn optimal priority/timing from gameplay)
 --  - Debug profiling & dashboard (monitor performance in real-time)
 --
--- Requires: WoW 12.0.0 (Retail)
+-- Requires: WoW 12.0.0+ (Retail, tested against 12.1.5) or WoW Forever 1.60 (game type "camelot")
 -- License: MIT (same as UnhaltedUnitFrames)
 
 local MAJOR_VERSION = 1
