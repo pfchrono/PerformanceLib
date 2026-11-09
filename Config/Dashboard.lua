@@ -2,7 +2,7 @@
 -- PERFORMANCE DASHBOARD - Real-Time Performance Monitoring UI
 -- =========================================================================
 
-local _, PerformanceLib = ...
+local addonName, PerformanceLib = ...
 
 if not PerformanceLib.Dashboard then
     PerformanceLib.Dashboard = {}
@@ -17,6 +17,47 @@ local updateInterval = 1.0
 local fpsSamples = {}
 local maxSamples = 5
 local GetNetStatsFn = GetNetStats
+
+-- UpdateAddOnMemoryUsage() walks every loaded addon and can hitch a frame, so per-addon
+-- memory is sampled at most every MEMORY_SAMPLE_INTERVAL seconds, and never in combat.
+local MEMORY_SAMPLE_INTERVAL = 10
+local lastMemorySample = 0
+local addonMemoryKB = {}
+
+local function GetTrackedAddons()
+    local names = { addonName or "PerformanceLib" }
+    local initiator = PerformanceLib.GetInitiator and PerformanceLib:GetInitiator()
+    if type(initiator) == "string" and initiator ~= "" and initiator ~= "Unknown" and initiator ~= names[1] then
+        names[#names + 1] = initiator
+    end
+    return names
+end
+
+local function SampleAddonMemory()
+    if type(UpdateAddOnMemoryUsage) ~= "function" or type(GetAddOnMemoryUsage) ~= "function" then
+        return
+    end
+    local now = GetTime()
+    if now - lastMemorySample < MEMORY_SAMPLE_INTERVAL and next(addonMemoryKB) then
+        return
+    end
+    if InCombatLockdown() and next(addonMemoryKB) then
+        return
+    end
+    lastMemorySample = now
+    UpdateAddOnMemoryUsage()
+    for _, name in ipairs(GetTrackedAddons()) do
+        addonMemoryKB[name] = GetAddOnMemoryUsage(name)
+    end
+end
+
+local function FormatMemoryKB(kb)
+    kb = tonumber(kb) or 0
+    if kb >= 1024 then
+        return ("%.2f MB"):format(kb / 1024)
+    end
+    return ("%.0f KB"):format(kb)
+end
 
 local function GetSmoothedFPS()
     local fps = GetFramerate()
@@ -145,6 +186,10 @@ function Dashboard:Update()
 
     local lines = {}
     lines[#lines + 1] = "|cFFFFD700=== Performance ===|r"
+    local client = PerformanceLib.GetClientInfo and PerformanceLib:GetClientInfo()
+    if client then
+        lines[#lines + 1] = ("Client: |cFF00B0F7%s|r %s (%s)"):format(client.flavor, tostring(client.version), tostring(client.build))
+    end
     lines[#lines + 1] = ("Preset: |cFF00B0F7%s|r"):format(GetActivePreset())
     local fpsColor = fps >= 55 and "|cFF00FF00" or (fps >= 30 and "|cFFFFFF00" or "|cFFFF0000")
     lines[#lines + 1] = ("FPS: %s%.1f|r"):format(fpsColor, fps)
@@ -154,7 +199,17 @@ function Dashboard:Update()
     local p99 = frameStats.P99 or 0
     local p99Color = p99 < 16.67 and "|cFF00FF00" or (p99 < 25 and "|cFFFFFF00" or "|cFFFF0000")
     lines[#lines + 1] = ("P95/P99: %s%.2f|r / %s%.2f|rms"):format(p95Color, p95, p99Color, p99)
-    lines[#lines + 1] = ("Memory: |cFF00FF00%.2f MB|r"):format((gcinfo() or 0) / 1024)
+    lines[#lines + 1] = ""
+
+    lines[#lines + 1] = "|cFFFFD700=== Memory ===|r"
+    SampleAddonMemory()
+    for _, name in ipairs(GetTrackedAddons()) do
+        if addonMemoryKB[name] then
+            lines[#lines + 1] = ("%s: |cFF00FF00%s|r"):format(name, FormatMemoryKB(addonMemoryKB[name]))
+        end
+    end
+    -- gcinfo() is the Lua heap shared by every addon, not this library's footprint
+    lines[#lines + 1] = ("Lua (all addons): |cFFAAAAAA%s|r"):format(FormatMemoryKB(gcinfo() or 0))
     lines[#lines + 1] = ""
 
     lines[#lines + 1] = "|cFFFFD700=== Network ===|r"

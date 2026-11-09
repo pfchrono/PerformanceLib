@@ -306,10 +306,37 @@ function PerfLib:Output(message, system, tier)
     _G.print(text)
 end
 
----Get the version string
----@return string Version (e.g., "1.0.0")
+---Get the version string from the TOC (falls back to the built-in constants)
+---@return string Version (e.g., "1.0.5")
 function PerfLib:GetVersion()
+    local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata
+    local tocVersion = getMetadata and addonName and getMetadata(addonName, "Version")
+    if type(tocVersion) == "string" then
+        local short = tocVersion:match("^(%d+%.%d+%.%d+)")
+        if short then
+            return short
+        end
+    end
     return ("%d.%d.%d"):format(MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION)
+end
+
+---Describe the running client. WoW Forever (game type "camelot", interface 16xxx) is a
+---Mainline-family client, so feature checks should not treat it as Classic.
+---@return table info { flavor = "Retail"|"Forever"|"Classic", version, build, interface }
+function PerfLib:GetClientInfo()
+    if self._clientInfo then
+        return self._clientInfo
+    end
+    local version, build, _, interface = GetBuildInfo()
+    interface = tonumber(interface) or 0
+    local flavor = "Classic"
+    if (WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT) or (interface >= 16000 and interface < 20000) then
+        flavor = "Forever"
+    elseif WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+        flavor = "Retail"
+    end
+    self._clientInfo = { flavor = flavor, version = version, build = build, interface = interface }
+    return self._clientInfo
 end
 
 ---Get the name of the addon that initialized the library
