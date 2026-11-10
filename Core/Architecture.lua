@@ -94,7 +94,6 @@ end
 -- =========================================================================
 
 local IsSecretValue = issecretvalue or function() return false end
-local GetCurveValueAtTime = C_CurveUtil and C_CurveUtil.GetCurveValueAtTime or function() return 0 end
 
 ---Check if a value is secret (WoW 12.0.0+)
 ---@param value any Value to check
@@ -103,7 +102,7 @@ function Arch.IsSecretValue(value)
     return IsSecretValue(value)
 end
 
----Safely handle secret values, providing visualization curves
+---Return the value, or the fallback when the value is secret
 ---@param secretValue any The secret value
 ---@param fallback number|string Fallback if unable to visualize
 ---@return number|string Safe visualization value
@@ -112,12 +111,9 @@ function Arch.SafeValue(secretValue, fallback)
         return secretValue
     end
     
-    -- Use curve-based visualization for secret values
-    local curveID = 1
-    local progress = (GetTime() % 1.0)
-    local visualValue = GetCurveValueAtTime(curveID, progress)
-    
-    return visualValue or fallback or 0
+    -- Secret values can't be read or converted in Lua; hand back the caller's fallback.
+    -- (This used to call C_CurveUtil.GetCurveValueAtTime, which doesn't exist.)
+    return fallback or 0
 end
 
 ---Compare two values safely (handles secret values)

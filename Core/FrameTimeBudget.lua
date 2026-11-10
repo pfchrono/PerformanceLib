@@ -164,11 +164,16 @@ function FrameTimeBudget:TrackFrameTime(elapsed)
 end
 
 ---Calculate P50, P95, P99 percentiles (lazy)
+local sortScratch = {} -- reused: this runs every 30 frames, a fresh table each time was garbage churn
+
 function FrameTimeBudget:CalculatePercentiles()
-    local sorted = {}
+    local sorted = sortScratch
     local len = historyCount
     if len == 0 then
         return
+    end
+    for i = len + 1, #sorted do
+        sorted[i] = nil
     end
     
     for i = 1, len do
