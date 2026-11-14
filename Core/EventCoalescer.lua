@@ -73,6 +73,23 @@ local function EnsureEventStats(event)
     end
 end
 
+-- Event payloads are stored with an explicit count (.n) and unpacked with it: a nil in the
+-- middle of an event's arguments would otherwise truncate everything after it.
+local EMPTY_ARGS = { n = 0 }
+
+---Store varargs into an existing table, reusing it instead of allocating one per event.
+local function PackInto(buffer, ...)
+    local n = select("#", ...)
+    for i = 1, n do
+        buffer[i] = (select(i, ...))
+    end
+    for i = n + 1, buffer.n or 0 do
+        buffer[i] = nil
+    end
+    buffer.n = n
+    return buffer
+end
+
 local function DispatchToBus(event, ...)
     if PerformanceLib.Architecture and PerformanceLib.Architecture.EventBus then
         PerformanceLib.Architecture.EventBus:Dispatch(event, ...)
@@ -141,6 +158,7 @@ function EventCoalescer:CoalesceEvent(eventName, delay, callback, priority)
     if not registeredEvents[eventName] then
         registeredEvents[eventName] = {
             callbacks = {},
+            argBuffer = {},
             delay = delay,
             priority = priority,
             pendingArgs = nil,
@@ -239,9 +257,9 @@ function EventCoalescer:_DispatchRegistered(eventName)
         end
     end
 
-    local args = data.pendingArgs or {}
+    local args = data.pendingArgs or EMPTY_ARGS
     for i = 1, #data.callbacks do
-        local ok, err = pcall(data.callbacks[i], unpack(args))
+        local ok, err = pcall(data.callbacks[i], unpack(args, 1, args.n))
         if not ok and PerformanceLib.DebugOutput and PerformanceLib.DebugOutput.Output then
             PerformanceLib.DebugOutput:Output("EventCoalescer", "Registered callback error: " .. tostring(err), 1)
         end
@@ -273,10 +291,11 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
 
     local registered = registeredEvents[eventName]
     if registered then
+        -- Only the latest payload is kept, so one buffer per event is enough
         if type(priorityOrArg) == "number" then
-            registered.pendingArgs = { ... }
+            registered.pendingArgs = PackInto(registered.argBuffer, ...)
         else
-            registered.pendingArgs = { priorityOrArg, ... }
+            registered.pendingArgs = PackInto(registered.argBuffer, priorityOrArg, ...)
         end
         registered.coalesceCount = registered.coalesceCount + 1
         if registered.coalesceCount == 1 then
@@ -312,15 +331,15 @@ function EventCoalescer:QueueEvent(eventName, priorityOrArg, ...)
     local args
     if type(priorityOrArg) == "number" then
         priority = math_max(1, math_min(4, priorityOrArg))
-        args = { ... }
+        args = PackInto({}, ...)
     else
-        args = { priorityOrArg, ... }
+        args = PackInto({}, priorityOrArg, ...)
     end
 
     EnsureEventStats(eventName)
 
     if priority == EventCoalescer.PRIORITY_CRITICAL then
-        DispatchToBus(eventName, unpack(args))
+        DispatchToBus(eventName, unpack(args, 1, args.n))
         stats.totalDispatched = stats.totalDispatched + 1
         stats.perEvent[eventName].dispatched = stats.perEvent[eventName].dispatched + 1
         RecordBatch(eventName, 1)
@@ -352,7 +371,7 @@ function EventCoalescer:ProcessQueue()
         local interval = COALESCE_INTERVALS[data.priority] or 0.03
         if now - lastTime >= interval then
             for i = 1, #data.args do
-                DispatchToBus(eventName, unpack(data.args[i]))
+                DispatchToBus(eventName, unpack(data.args[i], 1, data.args[i].n))
                 ObserveDispatchedEvent(eventName)
             end
             stats.totalDispatched = stats.totalDispatched + data.count
@@ -393,7 +412,7 @@ end
 function EventCoalescer:Flush()
     for eventName, data in pairs(queuedEvents) do
         for i = 1, #data.args do
-            DispatchToBus(eventName, unpack(data.args[i]))
+            DispatchToBus(eventName, unpack(data.args[i], 1, data.args[i].n))
             ObserveDispatchedEvent(eventName)
         end
         stats.totalDispatched = stats.totalDispatched + data.count

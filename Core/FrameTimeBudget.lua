@@ -306,6 +306,13 @@ end
 
 ---Get statistics
 ---@return table Stats object
+---Average and P95 frame time in ms, without allocating a table.
+---For per-frame callers (GetStatistics builds a new table on every call).
+---@return number avg, number p95
+function FrameTimeBudget:GetLoadSample()
+    return stats.avg, percentiles.P95
+end
+
 function FrameTimeBudget:GetStatistics()
     return {
         avg = stats.avg,
